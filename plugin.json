@@ -1,0 +1,11 @@
+{
+  "name": "Legion Center",
+  "author": "InnoVision Games",
+  "flags": ["root"],
+  "api_version": 1,
+  "publish": {
+    "tags": ["root"],
+    "description": "Legion Go button remapping, fan control, power LED, and charge limit control",
+    "image": "https://opengraph.githubassets.com/1/InnoVision-Games/legion-center"
+  }
+}
