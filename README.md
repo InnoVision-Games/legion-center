@@ -107,33 +107,17 @@ sudo systemctl restart plugin_loader.service
 sudo systemctl reboot
 ```
 
-# Experimental Features
+# Custom Fan Curves
 
-### Custom Fan Curves
-
-### WARNING: If you don't properly cool your device, it can go into thermal shutdown! Make sure you set proper fan curves to keep your device cool!
+## WARNING: If you don't properly cool your device, it can go into thermal shutdown! Make sure you set proper fan curves to keep your device cool!
 
 Note that this is using the fan curve implementation in the Legion Go's bios. This may require additional bios update from Lenovo to become fully functional.
 
-This method must be manually enabled. Once enabled, will use Lenovo's bios WMI functions to set fan curves. Requires Bios v28 or newer.
-
-Note that this requires the `acpi_call` module, if your Linux distro doesn't have it pre-installed, it'll have to be manually installed.
-
-Special thanks to [corando98](https://github.com/corando98) for investigating fan curves + writing the functions for to control it.
+This method must be manually enabled. The plugin gives you the ability to `acpi_call` directly from the plugin UI.
 
 run `sudo modprobe acpi_call` in terminal, if this errors out, you need to install `acpi_call`
 
 # Troubleshooting / Frequently Asked Questions
-
-## LED management seems to work temporarily
-
-If you are using HHD for your controller, it has it's own LED management that overwrites this plugin.
-
-Disable the LED management in HHD if you want to use the power LED via Legion Center instead.
-
-## Can I turn off the power LED while the device is asleep?
-
-Unfortunately, unless Lenovo enables configuring the sleep behavior of the LED via a bios update, this is not possible.
 
 ## The Plugin isn't working
 
