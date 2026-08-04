@@ -4,8 +4,6 @@
 
 A Decky Loader plugin from InnoVision Games that brings controller remapping, fan control, power LED, and charge limit management for the original Legion Go (Z1E) to SteamOS/Linux -- functionality otherwise only available through Lenovo's Windows-only Legion Space app.
 
-### For the Legion Go S, use [HueSync](https://github.com/honjow/HueSync) instead
-
 - [Functionality](#functionality)
 - [Install Instructions](#install-instructions)
   - [Prerequisites](#prerequisites)
