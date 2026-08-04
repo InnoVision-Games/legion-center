@@ -141,7 +141,7 @@ Also special thanks to [corando98](https://github.com/corando98) for writing + t
 
 The `\_SB.GZFD` ACPI/WMI calls used for fan curve, TDP mode, charge limit, and power LED control are documented by the [hhd-dev/adjustor](https://github.com/hhd-dev/adjustor) project (GPLv3).
 
-This plugin originated as a fork of Aarron Lee's `LegionCenter` (BSD 3-Clause); its HID and ACPI backend modules have since been reimplemented by InnoVision Games. See `LICENSE` and `THIRD_PARTY_NOTICES.md` for the full license chain.
+This plugin originated as a fork of Aarron Lee's `LegionGoRemapper` (BSD 3-Clause); its HID and ACPI backend modules have since been reimplemented by InnoVision Games. See `LICENSE` and `THIRD_PARTY_NOTICES.md` for the full license chain.
 
 Icon and controller button SVG files generated from PromptFont using FontForge.
 
