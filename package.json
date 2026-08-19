@@ -1,12 +1,13 @@
 {
   "name": "legion-center",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "A Decky Loader plugin for Legion Go controller remapping, fan control, and power LED management",
   "type": "module",
   "scripts": {
     "build": "shx rm -rf dist && rollup -c",
     "watch": "rollup -c -w",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "python3 -m unittest discover -s tests -v",
+    "check": "pnpm test && tsc --noEmit && pnpm run build"
   },
   "repository": {
     "type": "git",

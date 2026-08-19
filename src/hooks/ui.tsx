@@ -4,8 +4,13 @@ import {
   selectAcpiCallDkmsBusy,
   selectAcpiCallDkmsEnabled,
   selectAcpiCallDkmsError,
+  selectAcpiCallDkmsInstalled,
+  selectChargeLimitBackend,
+  selectChargeLimitBusy,
   selectChargeLimitEnabled,
+  selectChargeLimitError,
   selectPowerLedEnabled,
+  selectSupportsChargeLimit,
   uiSlice
 } from '../redux-modules/uiSlice';
 import {
@@ -30,13 +35,24 @@ const ACPI_CALL_DKMS_POLL_INTERVAL_MS = 5000;
 
 export const useChargeLimitEnabled = () => {
   const chargeLimitEnabled = useSelector(selectChargeLimitEnabled);
+  const supportsChargeLimit = useSelector(selectSupportsChargeLimit);
+  const chargeLimitBackend = useSelector(selectChargeLimitBackend);
+  const chargeLimitBusy = useSelector(selectChargeLimitBusy);
+  const chargeLimitError = useSelector(selectChargeLimitError);
   const dispatch = useDispatch();
 
   const setChargeLimit = (enabled: boolean) => {
     return dispatch(uiSlice.actions.setChargeLimit(enabled));
   };
 
-  return { chargeLimitEnabled, setChargeLimit };
+  return {
+    chargeLimitEnabled,
+    supportsChargeLimit,
+    chargeLimitBackend,
+    chargeLimitBusy,
+    chargeLimitError,
+    setChargeLimit
+  };
 };
 
 export const usePowerLed = () => {
@@ -58,6 +74,7 @@ export const usePowerLed = () => {
 // and error message for while the operation is in flight.
 export const useAcpiCallDkms = () => {
   const acpiCallDkmsEnabled = useSelector(selectAcpiCallDkmsEnabled);
+  const acpiCallDkmsInstalled = useSelector(selectAcpiCallDkmsInstalled);
   const acpiCallDkmsBusy = useSelector(selectAcpiCallDkmsBusy);
   const acpiCallDkmsError = useSelector(selectAcpiCallDkmsError);
   const dispatch = useDispatch();
@@ -88,6 +105,9 @@ export const useAcpiCallDkms = () => {
             typeof result.enabled === 'boolean' ? result.enabled : enabled
           )
         );
+        if (typeof result.installed === 'boolean') {
+          dispatch(uiSlice.actions.setAcpiCallDkmsInstalled(result.installed));
+        }
       } else {
         dispatch(
           uiSlice.actions.setAcpiCallDkmsError(
@@ -98,7 +118,9 @@ export const useAcpiCallDkms = () => {
     } catch (e) {
       dispatch(
         uiSlice.actions.setAcpiCallDkmsError(
-          e instanceof Error ? e.message : 'Failed to update acpi_call dkms status'
+          e instanceof Error
+            ? e.message
+            : 'Failed to update acpi_call dkms status'
         )
       );
     } finally {
@@ -131,6 +153,7 @@ export const useAcpiCallDkms = () => {
           return;
         }
         dispatch(uiSlice.actions.setAcpiCallDkmsEnabled(status.enabled));
+        dispatch(uiSlice.actions.setAcpiCallDkmsInstalled(status.installed));
         dispatch(uiSlice.actions.setAcpiCallDkmsBusy(status.busy));
         if (prevBusyRef.current && !status.busy) {
           dispatch(uiSlice.actions.setAcpiCallDkmsError(undefined));
@@ -149,5 +172,11 @@ export const useAcpiCallDkms = () => {
     };
   }, [dispatch]);
 
-  return { acpiCallDkmsEnabled, acpiCallDkmsBusy, acpiCallDkmsError, setAcpiCallDkmsEnabled };
+  return {
+    acpiCallDkmsEnabled,
+    acpiCallDkmsInstalled,
+    acpiCallDkmsBusy,
+    acpiCallDkmsError,
+    setAcpiCallDkmsEnabled
+  };
 };

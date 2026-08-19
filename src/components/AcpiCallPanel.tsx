@@ -1,11 +1,11 @@
 import {
+  ButtonItem,
   ConfirmModal,
   Field,
   PanelSection,
   PanelSectionRow,
   showModal,
-  Spinner,
-  ToggleField
+  Spinner
 } from '@decky/ui';
 import { FC } from 'react';
 import { useAcpiCallDkms } from '../hooks/ui';
@@ -13,13 +13,14 @@ import { useAcpiCallDkms } from '../hooks/ui';
 const AcpiCallPanel: FC = () => {
   const {
     acpiCallDkmsEnabled,
+    acpiCallDkmsInstalled,
     acpiCallDkmsBusy,
     acpiCallDkmsError,
     setAcpiCallDkmsEnabled
   } = useAcpiCallDkms();
 
-  const confirmAndSet = (enabled: boolean) => {
-    // Defensive: ToggleField is already disabled while busy, but that
+  const confirmInstallOrRepair = () => {
+    // Defensive: the button is already disabled while busy, but that
     // only takes effect once React re-renders, which isn't quite
     // synchronous with a click -- bail out here too rather than opening a
     // second confirm dialog on top of an operation that's already running.
@@ -29,19 +30,15 @@ const AcpiCallPanel: FC = () => {
 
     showModal(
       <ConfirmModal
-        strTitle={enabled ? 'Enable ACPI Call (DKMS)?' : 'Disable ACPI Call (DKMS)?'}
+        strTitle="Install or repair fan support?"
         strDescription={
-          enabled
-            ? 'This downloads a matching kernel modules/headers package and builds the ' +
-              'acpi_call kernel module via DKMS so it survives SteamOS updates. This can ' +
-              'take several minutes and needs an internet connection. Do not put the ' +
-              'Steam Deck to sleep or power it off while this is running. The dialog will ' +
-              'close immediately -- watch the Status field below for progress.'
-            : 'This removes the acpi_call DKMS module and its self-heal configuration from ' +
-              'this device. This can take a minute or two. The dialog will close ' +
-              'immediately -- watch the Status field below for progress.'
+          'Legion Center will download the matching SteamOS kernel headers, build ' +
+          'acpi_call with DKMS, and verify the running interface. This can take ' +
+          'several minutes and needs an internet connection. Keep the device awake ' +
+          'until the status below changes. After a SteamOS kernel update, return here ' +
+          'and run Repair again. Desktop Mode is not required.'
         }
-        strOKButtonText={enabled ? 'Enable' : 'Disable'}
+        strOKButtonText={acpiCallDkmsEnabled ? 'Repair' : 'Install'}
         onOK={() => {
           // Deliberately NOT returning the promise from
           // setAcpiCallDkmsEnabled() here. This call can run for several
@@ -53,17 +50,21 @@ const AcpiCallPanel: FC = () => {
           // without awaiting lets the dialog close immediately; the
           // panel underneath already shows a spinner + Status field for
           // the actual progress.
-          setAcpiCallDkmsEnabled(enabled);
+          setAcpiCallDkmsEnabled(true);
         }}
       />
     );
   };
 
-  let statusText = acpiCallDkmsEnabled ? 'Enabled' : 'Disabled';
+  let statusText = acpiCallDkmsEnabled
+    ? 'Ready'
+    : acpiCallDkmsInstalled
+      ? 'Repair needed'
+      : 'Not installed';
   let statusColor = acpiCallDkmsEnabled ? '#4CAF50' : '#8B929A';
 
   if (acpiCallDkmsBusy) {
-    statusText = 'Updating...';
+    statusText = 'Updating…';
     statusColor = '#E0A030';
   } else if (acpiCallDkmsError) {
     statusText = 'Error';
@@ -73,17 +74,26 @@ const AcpiCallPanel: FC = () => {
   return (
     <PanelSection title="System">
       <PanelSectionRow>
-        <ToggleField
-          label="Enable ACPI Call (DKMS)"
-          description="Builds and registers the acpi_call kernel module (survives OS updates)"
-          checked={acpiCallDkmsEnabled}
+        <ButtonItem
+          label={
+            acpiCallDkmsEnabled ? 'Repair Fan Support' : 'Install Fan Support'
+          }
+          description={
+            acpiCallDkmsEnabled
+              ? 'Rechecks the module for the current SteamOS kernel'
+              : 'Installs everything fan curves need without Desktop Mode'
+          }
           disabled={acpiCallDkmsBusy}
-          onChange={confirmAndSet}
-        />
+          onClick={confirmInstallOrRepair}
+        >
+          {acpiCallDkmsEnabled ? 'Repair' : 'Install'}
+        </ButtonItem>
       </PanelSectionRow>
       <PanelSectionRow>
         <Field label="Status">
-          <span style={{ color: statusColor, fontWeight: 600 }}>{statusText}</span>
+          <span style={{ color: statusColor, fontWeight: 600 }}>
+            {statusText}
+          </span>
         </Field>
       </PanelSectionRow>
       {acpiCallDkmsBusy && (
@@ -99,9 +109,7 @@ const AcpiCallPanel: FC = () => {
               >
                 <Spinner style={{ width: '16px', height: '16px' }} />
                 <span>
-                  {acpiCallDkmsEnabled
-                    ? 'Disabling acpi_call...'
-                    : 'Installing acpi_call, this can take several minutes...'}
+                  Installing fan support, this can take several minutes…
                 </span>
               </div>
             }

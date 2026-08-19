@@ -35,7 +35,8 @@ Included Functionality in this plugin:
 - Enabling/Disabling the touchpad
 - Gyro remapping to Left or Right Control Stick
 - allow any of these settings on a per-game basis
-- (requires acpi_call) 80% charge limit toggle and custom fan curves
+- 80% charge limit through the native Lenovo battery interface when available
+- Custom fan curves through `acpi_call`
 
 # Install Instructions
 
@@ -113,9 +114,21 @@ sudo systemctl reboot
 
 Note that this is using the fan curve implementation in the Legion Go's bios. This may require additional bios update from Lenovo to become fully functional.
 
-This method must be manually enabled. The plugin gives you the ability to `acpi_call` directly from the plugin UI.
+Fan support can be installed entirely from the plugin in Gaming Mode:
 
-run `sudo modprobe acpi_call` in terminal, if this errors out, you need to install `acpi_call`
+1. Open Legion Center.
+2. Scroll to **System**.
+3. Select **Install Fan Support** and confirm.
+4. Keep the device awake while the plugin downloads the exact kernel packages,
+   builds `acpi_call` through DKMS, and verifies `/proc/acpi/call`.
+5. Enable custom fan curves after the status changes to **Ready**.
+
+No Desktop Mode, Konsole commands, or manual header installation is required.
+The initial setup needs an internet connection and can take several minutes.
+
+SteamOS updates can replace the kernel. If fan support shows **Repair needed**
+after an update, select **Repair Fan Support** from the same panel. The repair
+runs entirely inside the plugin.
 
 # Troubleshooting / Frequently Asked Questions
 
