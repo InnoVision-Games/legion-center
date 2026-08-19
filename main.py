@@ -7,6 +7,9 @@ import logging
 # and add the `decky-loader/plugin/imports` path to `python.analysis.extraPaths` in `.vscode/settings.json`
 
 import decky
+import battery_charge
+import fan_capability
+import fan_control
 import legion_configurator
 import legion_space
 import controller_enums
@@ -14,7 +17,6 @@ import controllers
 import file_timeout
 import plugin_update
 import controller_settings as settings
-from time import sleep
 
 try:
     from acpi_enabler import AcpiEnabler
@@ -39,42 +41,86 @@ class Plugin:
         decky.logger.info("Legion Center starting up")
         self._acpi_call_busy = False
 
+        saved = settings.get_settings()
+        if saved.get("chargeLimitEnabled", False):
+            result = self._set_charge_limit_hardware(True)
+            if not result.success:
+                decky.logger.error(
+                    f"failed to restore saved charge limit: {result.error}"
+                )
+
+        if saved.get("customFanCurvesEnabled", False) and self._fan_backend_available():
+            profile = (saved.get("fan") or {}).get("default")
+            if profile:
+                try:
+                    if not fan_control.apply_fan_profile(
+                        profile,
+                        legion_space.set_full_fan_speed,
+                        legion_space.set_active_fan_curve,
+                    ):
+                        decky.logger.error("failed to restore the saved default fan profile")
+                except ValueError as error:
+                    decky.logger.error(f"saved default fan profile is invalid: {error}")
+
     async def get_settings(self):
         results = settings.get_settings()
-
-        if results.get("chargeLimitEnabled", False):
-            legion_space.set_charge_limit(True)
 
         try:
             results['pluginVersionNum'] = f'{decky.DECKY_PLUGIN_VERSION}'
 
-            if settings.supports_custom_fan_curves():
-                results['supportsCustomFanCurves'] = True
-            else:
-                results['supportsCustomFanCurves'] = False
+            results['supportsCustomFanCurves'] = self._fan_backend_available()
         except Exception as e:
             decky.logger.error(e)
+
+        charge_status = self._get_charge_limit_status()
+        results['supportsChargeLimit'] = charge_status.supported
+        results['chargeLimitEnabled'] = bool(charge_status.enabled)
+        results['chargeLimitBackend'] = charge_status.backend
+        results['chargeLimitError'] = charge_status.error
 
         try:
             results['acpiCallDkmsEnabled'] = self._acpi_call_dkms_enabled()
             results['acpiCallDkmsBusy'] = getattr(self, '_acpi_call_busy', False)
+            results['acpiCallDkmsInstalled'] = fan_capability.dkms_installed_for_running_kernel()
         except Exception as e:
             decky.logger.error(f'error while checking acpi_call dkms status {e}')
 
         return results
 
     def _acpi_call_dkms_enabled(self):
-        if AcpiEnabler is None:
-            return False
         try:
-            return AcpiEnabler.ACPI_CALL_CONF_PATH.exists()
+            return self._fan_backend_available()
         except Exception as e:
             decky.logger.error(f'error while checking acpi_call dkms status {e}')
             return False
 
+    def _fan_backend_available(self):
+        return fan_capability.ensure_acpi_call_available()
+
+    def _legacy_charge_getter(self):
+        return legion_space.get_charge_limit if self._fan_backend_available() else None
+
+    def _get_charge_limit_status(self):
+        return battery_charge.get_charge_limit_status(
+            legacy_get=self._legacy_charge_getter()
+        )
+
+    def _set_charge_limit_hardware(self, enabled: bool):
+        legacy_get = self._legacy_charge_getter()
+        legacy_set = legion_space.set_charge_limit if legacy_get else None
+        return battery_charge.set_charge_limit(
+            enabled,
+            legacy_get=legacy_get,
+            legacy_set=legacy_set,
+        )
+
     async def get_acpi_call_dkms_status(self):
         return {
             'enabled': self._acpi_call_dkms_enabled(),
+            'installed': fan_capability.dkms_installed_for_running_kernel(),
+            'managed': bool(
+                AcpiEnabler is not None and AcpiEnabler.ACPI_CALL_CONF_PATH.exists()
+            ),
             'busy': getattr(self, '_acpi_call_busy', False)
         }
 
@@ -91,13 +137,20 @@ class Plugin:
             workdir = os.path.join(decky.DECKY_PLUGIN_RUNTIME_DIR, 'acpi-enabler-work')
             enabler = AcpiEnabler(workdir=workdir, verbose=True)
 
-            loop = asyncio.get_event_loop()
+            loop = asyncio.get_running_loop()
             if enabled:
                 await loop.run_in_executor(None, enabler.enable)
             else:
                 await loop.run_in_executor(None, enabler.disable)
 
-            return {'success': True, 'enabled': self._acpi_call_dkms_enabled()}
+            status = await self.get_acpi_call_dkms_status()
+            if enabled and not status['enabled']:
+                return {
+                    'success': False,
+                    'enabled': False,
+                    'error': 'acpi_call installation completed but /proc/acpi/call is unavailable'
+                }
+            return {'success': True, **status}
         except Exception as e:
             decky.logger.error(f'error while {"enabling" if enabled else "disabling"} acpi_call dkms|{e}')
             return {'success': False, 'error': str(e)}
@@ -127,11 +180,11 @@ class Plugin:
 
     async def disable_fan_profiles(self, resetCurve = False):
         settings.set_setting('customFanCurvesEnabled', False)
-
-        if resetCurve:
-            legion_space.set_tdp_mode("performance")
-            sleep(0.5)
-            legion_space.set_tdp_mode("custom")
+        return fan_control.restore_firmware_fan_control(
+            legion_space.set_full_fan_speed,
+            legion_space.set_tdp_mode,
+            resetCurve,
+        )
 
     async def save_fan_settings(self, fanInfo, currentGameId):
         fanProfiles = fanInfo.get('fanProfiles', {})
@@ -145,30 +198,29 @@ class Plugin:
         try:
             active_fan_profile = fanProfiles.get('default')
 
-            if customFanCurvesEnabled and settings.supports_custom_fan_curves():
+            if customFanCurvesEnabled and self._fan_backend_available():
                 if fanPerGameProfilesEnabled:
                     fan_profile = fanProfiles.get(currentGameId)
                     if fan_profile:
                         active_fan_profile = fan_profile
 
-                enable_full_fan_speed = active_fan_profile.get("fullFanSpeedEnabled", False)
-                del active_fan_profile['fullFanSpeedEnabled']
-                active_fan_curve = list(active_fan_profile.values())
-
-                if not enable_full_fan_speed:
-                    legion_space.set_full_fan_speed(False)
-                    sleep(0.5)
-                    legion_space.set_active_fan_curve(active_fan_curve)
-                else:
-                    legion_space.set_full_fan_speed(True)
-            elif not customFanCurvesEnabled and settings.supports_custom_fan_curves():
-                legion_space.set_tdp_mode("performance")
-                sleep(0.5)
-                legion_space.set_tdp_mode("custom")
+                if not active_fan_profile:
+                    raise ValueError("No active fan profile is available")
+                return fan_control.apply_fan_profile(
+                    active_fan_profile,
+                    legion_space.set_full_fan_speed,
+                    legion_space.set_active_fan_curve,
+                )
+            elif not customFanCurvesEnabled and self._fan_backend_available():
+                return fan_control.restore_firmware_fan_control(
+                    legion_space.set_full_fan_speed,
+                    legion_space.set_tdp_mode,
+                    True,
+                )
 
             return True
         except Exception as e:
-            decky.logger(f'save_fan_settings error {e}')
+            decky.logger.error(f'save_fan_settings error {e}')
             return False
 
     async def set_power_led(self, enabled):
@@ -191,11 +243,15 @@ class Plugin:
 
     async def set_charge_limit(self, enabled):
         try:
-            settings.set_setting('chargeLimitEnabled', enabled)
-
-            legion_space.set_charge_limit(enabled)
+            result = self._set_charge_limit_hardware(bool(enabled))
+            if result.success:
+                settings.set_setting('chargeLimitEnabled', bool(result.enabled))
+            else:
+                decky.logger.error(f'error while setting charge limit: {result.error}')
+            return result.to_dict()
         except Exception as e:
             decky.logger.error(f'error while setting charge limit {e}')
+            return {'success': False, 'error': str(e)}
 
     async def remap_button(self, button: str, action: str):
         decky.logger.info(f"remap_button {button} {action}")

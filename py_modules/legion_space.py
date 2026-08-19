@@ -117,8 +117,11 @@ def set_fan_curve(points: Sequence[int]) -> bool:
     if len(points) != 10:
         decky.logger.error(f"legion_space: fan curve needs 10 points, got {len(points)}")
         return False
-    if any(not isinstance(p, int) for p in points):
+    if any(type(p) is not int for p in points):
         decky.logger.error("legion_space: fan curve has a non-integer point, refusing to set")
+        return False
+    if any(p < 0 or p > 115 for p in points):
+        decky.logger.error("legion_space: fan curve points must be between 0 and 115")
         return False
 
     # Byte layout: 10 duty-cycle points, followed by 10 fixed temperature
@@ -138,7 +141,9 @@ def set_fan_curve(points: Sequence[int]) -> bool:
 
 def set_active_fan_curve(points: Sequence[int]) -> bool:
     if get_tdp_mode() != "custom":
-        set_tdp_mode("custom")
+        if not set_tdp_mode("custom"):
+            decky.logger.error("legion_space: failed to switch to custom TDP mode")
+            return False
     sleep(0.3)
     return set_fan_curve(points)
 
