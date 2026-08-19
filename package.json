@@ -7,7 +7,8 @@
     "build": "shx rm -rf dist && rollup -c",
     "watch": "rollup -c -w",
     "test": "python3 -m unittest discover -s tests -v",
-    "check": "pnpm test && tsc --noEmit && pnpm run build"
+    "check": "pnpm test && tsc --noEmit && pnpm run build",
+    "package": "bash scripts/package.sh"
   },
   "repository": {
     "type": "git",

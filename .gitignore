@@ -1,5 +1,6 @@
 node_modules/
 dist/
+artifacts/
 __pycache__/
 *.py[cod]
 *.log
