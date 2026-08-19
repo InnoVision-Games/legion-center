@@ -7,6 +7,17 @@ settings_path = os.path.join(settings_directory, 'settings.json')
 setting_file = SettingsManager(name="settings", settings_directory=settings_directory)
 setting_file.read()
 
+TRANSIENT_STATUS_KEYS = (
+    'pluginVersionNum',
+    'supportsCustomFanCurves',
+    'supportsChargeLimit',
+    'chargeLimitBackend',
+    'chargeLimitError',
+    'acpiCallDkmsEnabled',
+    'acpiCallDkmsBusy',
+    'acpiCallDkmsInstalled',
+)
+
 def deep_merge(origin, destination):
     for k, v in origin.items():
         if isinstance(v, dict):
@@ -20,6 +31,19 @@ def deep_merge(origin, destination):
 def get_settings():
     setting_file.read()
     return setting_file.settings
+
+def remove_transient_status():
+    """Remove live capability fields persisted by older plugin builds."""
+    settings = get_settings()
+    changed = False
+    for key in TRANSIENT_STATUS_KEYS:
+        if key in settings:
+            del settings[key]
+            changed = True
+    if changed:
+        setting_file.settings = settings
+        setting_file.commit()
+    return changed
 
 def set_setting(name: str, value):
     return setting_file.setSetting(name, value)

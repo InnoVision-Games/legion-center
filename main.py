@@ -1,5 +1,6 @@
 import os
 import asyncio
+import copy
 import logging
 
 # The decky plugin module is located at decky-loader/plugin
@@ -41,6 +42,7 @@ class Plugin:
         decky.logger.info("Legion Center starting up")
         self._acpi_call_busy = False
 
+        settings.remove_transient_status()
         saved = settings.get_settings()
         if saved.get("chargeLimitEnabled", False):
             result = self._set_charge_limit_hardware(True)
@@ -63,7 +65,10 @@ class Plugin:
                     decky.logger.error(f"saved default fan profile is invalid: {error}")
 
     async def get_settings(self):
-        results = settings.get_settings()
+        # Capability and live hardware fields are response-only. Mutating the
+        # SettingsManager-owned dictionary here causes those transient values
+        # to be persisted the next time any real user setting is saved.
+        results = copy.deepcopy(settings.get_settings())
 
         try:
             results['pluginVersionNum'] = f'{decky.DECKY_PLUGIN_VERSION}'
@@ -144,6 +149,7 @@ class Plugin:
                 await loop.run_in_executor(None, enabler.disable)
 
             status = await self.get_acpi_call_dkms_status()
+            status['busy'] = False
             if enabled and not status['enabled']:
                 return {
                     'success': False,
