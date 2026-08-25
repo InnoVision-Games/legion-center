@@ -65,7 +65,7 @@ const FanPanel = () => {
             description={
               acpiCallDkmsEnabled
                 ? undefined
-                : 'Requires ACPI Call (DKMS) to be enabled in System'
+                : 'Install Fan Support in System below'
             }
             checked={customFanCurvesEnabled}
             disabled={!acpiCallDkmsEnabled}

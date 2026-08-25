@@ -93,8 +93,10 @@ export const fanSlice = createSlice({
 
       if (perGameProfilesEnabled) {
         const currentGameId = extractCurrentGameId();
+        bootstrapFanProfile(state, currentGameId);
         state.fanProfiles[currentGameId].fullFanSpeedEnabled = enabled;
       } else {
+        bootstrapFanProfile(state, 'default');
         state.fanProfiles.default.fullFanSpeedEnabled = enabled;
       }
     },
@@ -118,7 +120,7 @@ export const fanSlice = createSlice({
   },
   extraReducers: (builder) => {
     builder.addCase(setInitialState, (state, action) => {
-      const fanProfiles = action.payload.fan as FanProfiles;
+      const fanProfiles = action.payload.fan as FanProfiles | undefined;
 
       const customFanCurvesEnabled = Boolean(
         action.payload.customFanCurvesEnabled
@@ -132,7 +134,8 @@ export const fanSlice = createSlice({
       );
 
       state.customFanCurvesEnabled = customFanCurvesEnabled;
-      state.fanProfiles = fanProfiles;
+      state.fanProfiles = fanProfiles || {};
+      bootstrapFanProfile(state, 'default');
       state.fanPerGameProfilesEnabled = fanPerGameProfilesEnabled;
     });
     builder.addCase(setCurrentGameId, (state, action) => {
@@ -169,9 +172,13 @@ export const selectActiveFanProfile = (state: RootState) => {
     const {
       ui: { currentGameId = 'default' }
     } = state;
-    return state.fan.fanProfiles[currentGameId];
+    return (
+      state.fan.fanProfiles?.[currentGameId] ||
+      state.fan.fanProfiles?.default ||
+      DEFAULT_FAN_VALUES
+    );
   } else {
-    return state.fan.fanProfiles.default;
+    return state.fan.fanProfiles?.default || DEFAULT_FAN_VALUES;
   }
 };
 
@@ -270,8 +277,10 @@ function setStateValue({
 }) {
   if (sliceState.fanPerGameProfilesEnabled) {
     const currentGameId = extractCurrentGameId();
+    bootstrapFanProfile(sliceState, currentGameId);
     set(sliceState, `fanProfiles.${currentGameId}.${key}`, value);
   } else {
+    bootstrapFanProfile(sliceState, 'default');
     set(sliceState, `fanProfiles.default.${key}`, value);
   }
 }
@@ -287,7 +296,7 @@ function bootstrapFanProfile(state: FanState, newGameId: string) {
     newGameId === 'default'
   ) {
     const defaultProfile = state.fanProfiles?.default;
-    const newFanProfile = defaultProfile || DEFAULT_FAN_VALUES;
+    const newFanProfile = cloneDeep(defaultProfile || DEFAULT_FAN_VALUES);
 
     state.fanProfiles[newGameId] = newFanProfile;
   }

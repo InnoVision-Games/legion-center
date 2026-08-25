@@ -14,12 +14,23 @@ export enum ServerAPIMethods {
 
 export type AcpiCallDkmsStatus = {
   enabled: boolean;
+  installed: boolean;
+  managed?: boolean;
   busy: boolean;
 };
 
 export type AcpiCallDkmsResult = {
   success: boolean;
   enabled?: boolean;
+  installed?: boolean;
+  error?: string;
+};
+
+export type ChargeLimitResult = {
+  success: boolean;
+  supported?: boolean;
+  enabled?: boolean;
+  backend?: string;
   error?: string;
 };
 
@@ -35,9 +46,10 @@ export const remapButton = async (
 };
 
 export const logInfo = (info: any) => {
-  call<[info: string], void>(ServerAPIMethods.LOG_INFO, JSON.stringify(info)).catch(
-    () => {}
-  );
+  call<[info: string], void>(
+    ServerAPIMethods.LOG_INFO,
+    JSON.stringify(info)
+  ).catch(() => {});
 };
 
 export const setPowerLed = async (enabled: boolean) => {
@@ -45,7 +57,10 @@ export const setPowerLed = async (enabled: boolean) => {
 };
 
 export const setChargeLimit = async (enabled: boolean) => {
-  await call<[enabled: boolean], void>(ServerAPIMethods.SET_CHARGE_LIMIT, enabled);
+  return await call<[enabled: boolean], ChargeLimitResult>(
+    ServerAPIMethods.SET_CHARGE_LIMIT,
+    enabled
+  );
 };
 
 export const getSettings = async () => {

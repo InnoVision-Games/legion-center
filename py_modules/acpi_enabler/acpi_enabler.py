@@ -246,14 +246,13 @@ class AcpiEnabler:
     # real CompletedProcess, which several callers here need in order to
     # inspect .stdout/.returncode even when check=False.
     def _run(self, command, check=True):
-        """Run command, warning (but not raising) on an unexpected failure.
+        """Run a command and raise when a required step fails.
 
         Args:
             command: Argv list to execute.
             check: If True (default), a non-zero exit or missing
-                executable is treated as unexpected and a warning is
-                printed. If False, failures are silent (see
-                _run_quiet()).
+                executable raises RuntimeError. If False, failures are
+                returned without raising (see _run_quiet()).
 
         Returns:
             The completed subprocess.CompletedProcess, or None if the
@@ -266,15 +265,16 @@ class AcpiEnabler:
             result = subprocess.run(command, capture_output=True, text=True, env=self._child_env())
         except FileNotFoundError as exc:
             if check:
-                self._warn('command not found: %s (%s)' % (display, exc))
+                self._die('command not found: %s (%s)' % (display, exc))
             return None
 
-        if result.returncode != 0:
-            if check:
-                self._warn('command failed (exit %d): %s' % (result.returncode, display))
-                stderr = (result.stderr or '').strip()
-                for line in stderr.splitlines():
-                    print('      %s' % line, file=sys.stderr)
+        if result.returncode != 0 and check:
+            stderr = (result.stderr or '').strip()
+            detail = ': %s' % stderr if stderr else ''
+            self._die(
+                'command failed (exit %d): %s%s'
+                % (result.returncode, display, detail)
+            )
         elif self.verbose:
             stdout = (result.stdout or '').strip()
             for line in stdout.splitlines():
@@ -838,6 +838,9 @@ class AcpiEnabler:
         if self._acpi_call_installed(kernel_release):
             self._log('acpi_call already installed for %s' % kernel_release)
             self._run(['sudo', 'modprobe', self.ACPI_CALL_MODULE])
+            Path('/etc/modules-load.d/acpi_call.conf').write_text(
+                self.ACPI_CALL_MODULE + '\n'
+            )
             return
 
         if shutil.which('git') is None:
@@ -1062,23 +1065,45 @@ class AcpiEnabler:
 
         Disables read-only, downloads + installs the kernel
         modules/headers packages matching the running kernel, builds
-        and registers the acpi_call DKMS module against them, installs
-        the self-healing update machinery so it survives future OS
-        updates, then restores read-only and cleans up the downloaded
-        packages.
+        and registers the acpi_call DKMS module against them, verifies
+        the running interface, then restores read-only and cleans up all
+        temporary files. If a SteamOS update changes the kernel, the
+        plugin can run this same repair flow again from Gaming Mode.
 
         Raises:
             RuntimeError: If any step fails (e.g. required packages
                 cannot be resolved, downloaded, or installed).
         """
         self._log('Enabling ACPI calls')
-        self.prep_steamos()
-        modules_path, headers_path = self.download_kernel_packages()
-        self.install_kernel_packages(modules_path, headers_path)
-        self.install_acpi_call_module()
-        self._configure_selfheal_updates()
-        self.finalize_steamos()
-        self.cleanup(modules_path, headers_path)
+        modules_path = None
+        headers_path = None
+        readonly_disabled = False
+        try:
+            self.prep_steamos()
+            readonly_disabled = True
+
+            kernel_release = platform.release()
+            if not self._acpi_call_installed(kernel_release):
+                modules_path, headers_path = self.download_kernel_packages()
+                self.install_kernel_packages(modules_path, headers_path)
+
+            self.install_acpi_call_module()
+            if not self._acpi_call_installed(kernel_release):
+                self._die(
+                    'acpi_call is not installed for the running kernel %s'
+                    % kernel_release
+                )
+            if not Path('/proc/acpi/call').is_file():
+                self._die('acpi_call loaded without creating /proc/acpi/call')
+        finally:
+            try:
+                self._teardown_build_overlay()
+            finally:
+                try:
+                    self.cleanup(modules_path, headers_path)
+                finally:
+                    if readonly_disabled:
+                        self.finalize_steamos()
 
     # ------------------------------------------------------------ disable
     def _unload_acpi_call_module(self):
@@ -1176,13 +1201,22 @@ class AcpiEnabler:
         this device, in which case the shared update wrapper and
         repatch.py are deliberately left alone.
         """
-        if not self.ACPI_CALL_CONF_PATH.exists():
-            self._log('acpi_call self-heal is not configured on this device -- nothing to disable')
+        if (
+            not self.ACPI_CALL_CONF_PATH.exists()
+            and not self._acpi_call_installed(platform.release())
+            and not Path('/proc/acpi/call').is_file()
+        ):
+            self._log('acpi_call is not installed on this device -- nothing to disable')
             return
 
         self._log('Disabling ACPI calls')
-        self.prep_steamos()
-        self._unload_acpi_call_module()
-        self._remove_acpi_call_dkms()
-        self._teardown_selfheal_updates()
-        self.finalize_steamos()
+        readonly_disabled = False
+        try:
+            self.prep_steamos()
+            readonly_disabled = True
+            self._unload_acpi_call_module()
+            self._remove_acpi_call_dkms()
+            self._teardown_selfheal_updates()
+        finally:
+            if readonly_disabled:
+                self.finalize_steamos()

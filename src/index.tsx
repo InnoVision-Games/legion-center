@@ -1,4 +1,5 @@
 import {
+  Field,
   PanelSection,
   PanelSectionRow,
   staticClasses,
@@ -20,32 +21,47 @@ import logo from '../assets/Icon.png';
 import FanPanel from './components/fan/FanPanel';
 import ErrorBoundary from './components/ErrorBoundary';
 import OtaUpdates from './components/OtaUpdates';
-import { useAcpiCallDkms, useChargeLimitEnabled } from './hooks/ui';
+import { useChargeLimitEnabled } from './hooks/ui';
 
 const Content: FC = memo(() => {
   const loading = useSelector(getInitialLoading);
-  const { chargeLimitEnabled, setChargeLimit } = useChargeLimitEnabled();
-  const { acpiCallDkmsEnabled } = useAcpiCallDkms();
+  const {
+    chargeLimitEnabled,
+    supportsChargeLimit,
+    chargeLimitBackend,
+    chargeLimitBusy,
+    chargeLimitError,
+    setChargeLimit
+  } = useChargeLimitEnabled();
   if (loading) {
     return null;
   }
   return (
     <>
-      <PanelSection>
-        <PanelSectionRow>
-          <ToggleField
-            label="Enable Charge Limit (80%)"
-            description={
-              acpiCallDkmsEnabled
-                ? undefined
-                : 'Requires ACPI Call (DKMS) to be enabled below'
-            }
-            checked={chargeLimitEnabled}
-            disabled={!acpiCallDkmsEnabled}
-            onChange={setChargeLimit}
-          />
-        </PanelSectionRow>
-      </PanelSection>
+      {supportsChargeLimit && (
+        <PanelSection>
+          <PanelSectionRow>
+            <ToggleField
+              label="Enable Charge Limit (80%)"
+              description={
+                chargeLimitBackend === 'sysfs'
+                  ? 'Uses the native Lenovo battery protection interface'
+                  : 'Uses the legacy ACPI battery protection interface'
+              }
+              checked={chargeLimitEnabled}
+              disabled={chargeLimitBusy}
+              onChange={setChargeLimit}
+            />
+          </PanelSectionRow>
+          {Boolean(chargeLimitError) && (
+            <PanelSectionRow>
+              <Field label="Charge limit error">
+                <span style={{ color: '#ff6b6b' }}>{chargeLimitError}</span>
+              </Field>
+            </PanelSectionRow>
+          )}
+        </PanelSection>
+      )}
       <ErrorBoundary title="Lighting Panel">
         <PowerLedPanel />
       </ErrorBoundary>
@@ -55,7 +71,7 @@ const Content: FC = memo(() => {
       <ErrorBoundary title="Remap Buttons">
         <RemapButtons />
       </ErrorBoundary>
-      <ErrorBoundary title="ACPI Call Panel">
+      <ErrorBoundary title="Fan Support">
         <AcpiCallPanel />
       </ErrorBoundary>
       <ErrorBoundary>
