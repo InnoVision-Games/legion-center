@@ -12,6 +12,8 @@ import decky
 import battery_charge
 import fan_capability
 import fan_control
+import fan_profiles
+import fan_telemetry
 import legion_configurator
 import legion_space
 import controller_enums
@@ -72,14 +74,22 @@ class Plugin:
             profile = (saved.get("fan") or {}).get("default")
             if profile:
                 try:
-                    if not fan_control.apply_fan_profile(
+                    applied = fan_control.apply_fan_profile(
                         profile,
                         legion_space.set_full_fan_speed,
                         legion_space.set_active_fan_curve,
-                    ):
+                    )
+                    if applied:
+                        self._fan_apply_status = 'applied'
+                        self._fan_applied_at = int(time.time() * 1000)
+                    else:
+                        self._fan_apply_status = 'error'
+                        self._fan_apply_error = 'The firmware did not accept the saved fan profile'
                         decky.logger.error("failed to restore the saved default fan profile")
-                except ValueError as error:
-                    decky.logger.error(f"saved default fan profile is invalid: {error}")
+                except Exception as error:
+                    self._fan_apply_status = 'error'
+                    self._fan_apply_error = str(error)
+                    decky.logger.error(f"failed to restore saved fan profile: {error}")
 
     async def get_settings(self):
         # Capability and live hardware fields are response-only. Mutating the
@@ -91,6 +101,9 @@ class Plugin:
             results['pluginVersionNum'] = f'{decky.DECKY_PLUGIN_VERSION}'
 
             results['supportsCustomFanCurves'] = self._fan_backend_available()
+            results['fanApplyStatus'] = getattr(self, '_fan_apply_status', 'idle')
+            results['fanApplyError'] = getattr(self, '_fan_apply_error', None)
+            results['fanAppliedAt'] = getattr(self, '_fan_applied_at', None)
         except Exception as e:
             decky.logger.error(e)
 
@@ -279,14 +292,16 @@ class Plugin:
         fanPerGameProfilesEnabled = fanInfo.get('fanPerGameProfilesEnabled', False)
         customFanCurvesEnabled = fanInfo.get('customFanCurvesEnabled', False)
 
-        settings.set_setting('fanPerGameProfilesEnabled', fanPerGameProfilesEnabled)
-        settings.set_setting('customFanCurvesEnabled', customFanCurvesEnabled)
-        settings.set_all_fan_profiles(fanProfiles)
-
         try:
+            fanProfiles = fan_profiles.normalize_fan_profiles(fanProfiles)
+            settings.set_setting('fanPerGameProfilesEnabled', fanPerGameProfilesEnabled)
+            settings.set_setting('customFanCurvesEnabled', customFanCurvesEnabled)
+            settings.set_all_fan_profiles(fanProfiles)
+
             active_fan_profile = fanProfiles.get('default')
 
-            if customFanCurvesEnabled and self._fan_backend_available():
+            fan_backend_available = self._fan_backend_available()
+            if customFanCurvesEnabled and fan_backend_available:
                 if fanPerGameProfilesEnabled:
                     fan_profile = fanProfiles.get(currentGameId)
                     if fan_profile:
@@ -294,22 +309,57 @@ class Plugin:
 
                 if not active_fan_profile:
                     raise ValueError("No active fan profile is available")
-                return fan_control.apply_fan_profile(
+                applied = fan_control.apply_fan_profile(
                     active_fan_profile,
                     legion_space.set_full_fan_speed,
                     legion_space.set_active_fan_curve,
                 )
-            elif not customFanCurvesEnabled and self._fan_backend_available():
-                return fan_control.restore_firmware_fan_control(
+                self._fan_apply_status = 'applied' if applied else 'error'
+                self._fan_apply_error = (
+                    None if applied else 'The firmware did not accept the active fan profile'
+                )
+                if applied:
+                    self._fan_applied_at = int(time.time() * 1000)
+                return applied
+            elif customFanCurvesEnabled:
+                self._fan_apply_status = 'error'
+                self._fan_apply_error = 'Fan support is unavailable'
+                decky.logger.error('fan profile requested but acpi_call is unavailable')
+                return False
+            elif fan_backend_available:
+                restored = fan_control.restore_firmware_fan_control(
                     legion_space.set_full_fan_speed,
                     legion_space.set_tdp_mode,
                     True,
                 )
+                self._fan_apply_status = 'idle' if restored else 'error'
+                self._fan_apply_error = (
+                    None if restored else 'The firmware did not restore automatic fan control'
+                )
+                return restored
 
+            self._fan_apply_status = 'idle'
+            self._fan_apply_error = None
             return True
         except Exception as e:
+            self._fan_apply_status = 'error'
+            self._fan_apply_error = str(e)
             decky.logger.error(f'save_fan_settings error {e}')
             return False
+
+    async def get_fan_telemetry(self):
+        try:
+            return fan_telemetry.get_fan_telemetry()
+        except Exception as e:
+            decky.logger.error(f'get_fan_telemetry error {e}')
+            return {
+                'available': False,
+                'temperatureC': None,
+                'temperatureLabel': None,
+                'temperatureSource': None,
+                'sampledAt': int(time.time() * 1000),
+                'error': str(e),
+            }
 
     async def set_power_led(self, enabled):
         # Wrapped in try/except (matching set_charge_limit below) so that

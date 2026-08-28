@@ -1,21 +1,39 @@
 import {
+  ButtonItem,
+  ConfirmModal,
+  DropdownItem,
   Focusable,
   PanelSection,
   PanelSectionRow,
+  showModal,
   ToggleField
 } from '@decky/ui';
 import {
+  useCopyGlobalFanProfile,
   useCustomFanCurvesEnabled,
   useEnableFullFanSpeedMode,
+  useFanPreset,
   useFanPerGameProfilesEnabled
 } from '../../hooks/fan';
+import type { FanPresetId } from '../../redux-modules/fanSlice';
 import { useAcpiCallDkms } from '../../hooks/ui';
 import { capitalize } from 'lodash';
 import { useSelector } from 'react-redux';
 import { useState } from 'react';
-import { selectCurrentGameDisplayName } from '../../redux-modules/uiSlice';
+import {
+  selectCurrentGameDisplayName,
+  selectCurrentGameId
+} from '../../redux-modules/uiSlice';
 import FanCurveSliders from './FanCurveSliders';
+import FanTelemetryRows from './FanTelemetryRows';
 import { IoMdArrowDropdown, IoMdArrowDropup } from 'react-icons/io';
+
+const FAN_PRESET_OPTIONS: { data: FanPresetId; label: string }[] = [
+  { data: 'quiet', label: 'Quiet' },
+  { data: 'balanced', label: 'Balanced' },
+  { data: 'aggressive', label: 'Aggressive cooling' },
+  { data: 'custom', label: 'Custom' }
+];
 
 const useTitle = (fanPerGameProfilesEnabled: boolean) => {
   const currentDisplayName = useSelector(selectCurrentGameDisplayName);
@@ -38,9 +56,28 @@ const FanPanel = () => {
 
   const { customFanCurvesEnabled, setCustomFanCurvesEnabled } =
     useCustomFanCurvesEnabled();
+  const { fanPreset, setFanPreset } = useFanPreset();
+  const copyGlobalFanProfile = useCopyGlobalFanProfile();
   const { fanPerGameProfilesEnabled, setFanPerGameProfilesEnabled } =
     useFanPerGameProfilesEnabled();
   const title = useTitle(fanPerGameProfilesEnabled);
+  const currentGameId = useSelector(selectCurrentGameId);
+  const currentDisplayName = useSelector(selectCurrentGameDisplayName);
+
+  const confirmCopyGlobalProfile = () => {
+    showModal(
+      <ConfirmModal
+        strTitle="Replace this game's fan curve?"
+        strDescription={`The fan curve for ${capitalize(
+          currentDisplayName
+        )} will be replaced with your global curve.`}
+        strOKButtonText="Copy Global Curve"
+        onOK={() => {
+          copyGlobalFanProfile();
+        }}
+      />
+    );
+  };
 
   return (
     <>
@@ -81,6 +118,33 @@ const FanPanel = () => {
                 onChange={setFanPerGameProfilesEnabled}
               />
             </PanelSectionRow>
+            {fanPerGameProfilesEnabled && currentGameId !== 'default' && (
+              <PanelSectionRow>
+                <ButtonItem
+                  label="Copy Global Curve to This Game"
+                  description={`Replace ${capitalize(
+                    currentDisplayName
+                  )}'s curve with the global profile`}
+                  onClick={confirmCopyGlobalProfile}
+                >
+                  Copy
+                </ButtonItem>
+              </PanelSectionRow>
+            )}
+            <PanelSectionRow>
+              <DropdownItem
+                label="Fan curve preset"
+                description="Choose a starting curve or fine-tune it below"
+                rgOptions={FAN_PRESET_OPTIONS}
+                selectedOption={fanPreset}
+                onChange={(option) => {
+                  if (option.data !== 'custom') {
+                    setFanPreset(option.data);
+                  }
+                }}
+              />
+            </PanelSectionRow>
+            <FanTelemetryRows />
             <PanelSectionRow>
               {/* ButtonItem's own internal padding can't be overridden via
                   props (no style prop), so constraining ITS wrapper to a
@@ -102,6 +166,11 @@ const FanPanel = () => {
                     : '1px solid rgba(255, 255, 255, 0.1)',
                   cursor: 'pointer'
                 }}
+                aria-label={
+                  showSliders
+                    ? 'Hide custom fan curve controls'
+                    : 'Show custom fan curve controls'
+                }
                 onClick={() => setShowSliders(!showSliders)}
                 onOKActionDescription={showSliders ? 'Hide' : 'Show'}
               >
@@ -117,12 +186,10 @@ const FanPanel = () => {
                 />
               </PanelSectionRow>
             )}
+            {showSliders && !enableFullFanSpeedMode && <FanCurveSliders />}
           </>
         )}
       </PanelSection>
-      {customFanCurvesEnabled && !enableFullFanSpeedMode && showSliders && (
-        <FanCurveSliders />
-      )}
     </>
   );
 };

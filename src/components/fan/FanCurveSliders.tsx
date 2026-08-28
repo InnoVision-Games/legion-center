@@ -1,11 +1,6 @@
 import { useDispatch, useSelector } from 'react-redux';
 import { fanSlice, selectActiveFanCurve } from '../../redux-modules/fanSlice';
-import {
-  PanelSection,
-  PanelSectionRow,
-  SliderField,
-  ToggleField
-} from '@decky/ui';
+import { PanelSectionRow, SliderField, ToggleField } from '@decky/ui';
 import { FC, useState } from 'react';
 
 const DISABLE_KEY = 'legion-center-disable-fan-curve-limit';
@@ -39,31 +34,28 @@ const FanCurveSliders: FC = () => {
         return dispatch(fanSlice.actions.updateFanCurve({ temp, fanSpeed }));
       };
       return (
-        <>
-          <PanelSectionRow>
-            <SliderField
-              label={`${temp} ℃`}
-              value={fanSpeed}
-              showValue
-              valueSuffix="%"
-              step={5}
-              min={5}
-              max={115}
-              validValues="range"
-              bottomSeparator="none"
-              key={idx}
-              onChange={(newSpeed) => {
-                return updateFanCurveValue(temp, newSpeed);
-              }}
-            />
-          </PanelSectionRow>
-        </>
+        <PanelSectionRow key={temp}>
+          <SliderField
+            label={`${temp} ℃`}
+            value={fanSpeed}
+            showValue
+            valueSuffix="%"
+            step={5}
+            min={5}
+            max={115}
+            validValues="range"
+            bottomSeparator="none"
+            onChange={(newSpeed) => {
+              return updateFanCurveValue(temp, newSpeed);
+            }}
+          />
+        </PanelSectionRow>
       );
     }
   );
 
   return (
-    <PanelSection title={'Temp (℃) | Fan Speed (%)'}>
+    <>
       <PanelSectionRow>
         <ToggleField
           label="Disable Fan Curve Limits"
@@ -72,7 +64,7 @@ const FanCurveSliders: FC = () => {
         />
       </PanelSectionRow>
       {sliders}
-    </PanelSection>
+    </>
   );
 };
 

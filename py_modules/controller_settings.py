@@ -10,6 +10,9 @@ setting_file.read()
 TRANSIENT_STATUS_KEYS = (
     'pluginVersionNum',
     'supportsCustomFanCurves',
+    'fanApplyStatus',
+    'fanApplyError',
+    'fanAppliedAt',
     'supportsChargeLimit',
     'chargeLimitBackend',
     'chargeLimitConfigurable',

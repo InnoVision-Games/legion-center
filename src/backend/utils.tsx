@@ -8,6 +8,7 @@ export enum ServerAPIMethods {
   GET_SETTINGS = 'get_settings',
   SET_POWER_LED = 'set_power_led',
   SET_CHARGE_LIMIT = 'set_charge_limit',
+  GET_FAN_TELEMETRY = 'get_fan_telemetry',
   GET_ACPI_CALL_DKMS_STATUS = 'get_acpi_call_dkms_status',
   SET_ACPI_CALL_DKMS_ENABLED = 'set_acpi_call_dkms_enabled'
 }
@@ -46,6 +47,15 @@ export type ChargeLimitResult = {
   error?: string;
 };
 
+export type FanTelemetry = {
+  available: boolean;
+  temperatureC?: number | null;
+  temperatureLabel?: string | null;
+  temperatureSource?: string | null;
+  sampledAt: number;
+  error?: string;
+};
+
 export const remapButton = async (
   button: RemappableButtons,
   action: RemapActions
@@ -77,6 +87,10 @@ export const setChargeLimit = async (limit: number) => {
 
 export const getSettings = async () => {
   return await call<[], { [s: string]: any }>(ServerAPIMethods.GET_SETTINGS);
+};
+
+export const getFanTelemetry = async () => {
+  return await call<[], FanTelemetry>(ServerAPIMethods.GET_FAN_TELEMETRY);
 };
 
 export const extractDisplayName = () =>
