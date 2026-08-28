@@ -18,6 +18,7 @@ class Logger:
 sys.modules.setdefault("decky", SimpleNamespace(logger=Logger()))
 
 import legion_space
+import fan_telemetry
 
 
 def main():
@@ -32,6 +33,7 @@ def main():
             legion_space.FEATURE_ID_FULL_FAN_SPEED
         ),
         "tdp_mode": legion_space.get_tdp_mode(),
+        "fan_telemetry": fan_telemetry.get_fan_telemetry(),
     }
     print(json.dumps(state, indent=2, sort_keys=True))
 

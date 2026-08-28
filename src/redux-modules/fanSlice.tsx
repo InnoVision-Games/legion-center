@@ -46,26 +46,71 @@ type FanCurve = {
   100: FanSpeed;
 };
 
-interface FanProfile extends FanCurve {
+export interface FanProfile extends FanCurve {
   fullFanSpeedEnabled: boolean;
 }
 
-type FanProfiles = {
+export type SelectableFanPresetId = 'quiet' | 'balanced' | 'aggressive';
+export type FanPresetId = SelectableFanPresetId | 'custom';
+
+export const FAN_PRESETS: Record<SelectableFanPresetId, FanProfile> = {
+  quiet: {
+    10: 5,
+    20: 5,
+    30: 5,
+    40: 5,
+    50: 10,
+    60: 25,
+    70: 70,
+    80: 80,
+    90: 95,
+    100: 100,
+    fullFanSpeedEnabled: false
+  },
+  balanced: DEFAULT_FAN_VALUES,
+  aggressive: {
+    10: 15,
+    20: 15,
+    30: 20,
+    40: 25,
+    50: 40,
+    60: 60,
+    70: 85,
+    80: 100,
+    90: 115,
+    100: 115,
+    fullFanSpeedEnabled: false
+  }
+};
+
+const FAN_TEMPERATURES: (keyof FanCurve)[] = [
+  10, 20, 30, 40, 50, 60, 70, 80, 90, 100
+];
+
+export type FanProfiles = {
   [gameId: string]: FanProfile;
 };
+
+export type FanApplyStatus = 'idle' | 'applying' | 'applied' | 'error';
 
 type FanState = {
   fanProfiles: FanProfiles;
   fanPerGameProfilesEnabled: boolean;
   customFanCurvesEnabled: boolean;
   supportsCustomFanCurves: boolean;
+  fanApplyStatus: FanApplyStatus;
+  fanApplyError?: string;
+  fanAppliedAt?: number;
 };
 
 const initialState: FanState = {
   fanProfiles: {},
   fanPerGameProfilesEnabled: false,
   customFanCurvesEnabled: false,
-  supportsCustomFanCurves: false
+  supportsCustomFanCurves: false,
+  fanApplyStatus: 'idle',
+  fanApplyError: undefined,
+  fanAppliedAt: undefined
 };
 
 export const fanSlice = createSlice({
@@ -100,6 +145,20 @@ export const fanSlice = createSlice({
         state.fanProfiles.default.fullFanSpeedEnabled = enabled;
       }
     },
+    applyFanPreset: (state, action: PayloadAction<SelectableFanPresetId>) => {
+      const profileId = state.fanPerGameProfilesEnabled
+        ? extractCurrentGameId()
+        : 'default';
+      bootstrapFanProfile(state, profileId);
+      state.fanProfiles[profileId] = cloneDeep(FAN_PRESETS[action.payload]);
+    },
+    copyDefaultFanProfileToCurrent: (state) => {
+      if (!state.fanPerGameProfilesEnabled) return;
+      const currentGameId = extractCurrentGameId();
+      if (!currentGameId || currentGameId === 'default') return;
+      bootstrapFanProfile(state, 'default');
+      state.fanProfiles[currentGameId] = cloneDeep(state.fanProfiles.default);
+    },
     updateFanCurve: (
       state,
       action: PayloadAction<{
@@ -116,6 +175,20 @@ export const fanSlice = createSlice({
     },
     updateFanProfiles: (state, action: PayloadAction<FanProfiles>) => {
       merge(state.fanProfiles, action.payload);
+    },
+    setFanApplyState: (
+      state,
+      action: PayloadAction<{
+        status: FanApplyStatus;
+        error?: string;
+        appliedAt?: number;
+      }>
+    ) => {
+      state.fanApplyStatus = action.payload.status;
+      state.fanApplyError = action.payload.error;
+      if (typeof action.payload.appliedAt === 'number') {
+        state.fanAppliedAt = action.payload.appliedAt;
+      }
     }
   },
   extraReducers: (builder) => {
@@ -137,6 +210,18 @@ export const fanSlice = createSlice({
       state.fanProfiles = fanProfiles || {};
       bootstrapFanProfile(state, 'default');
       state.fanPerGameProfilesEnabled = fanPerGameProfilesEnabled;
+      if (
+        action.payload.fanApplyStatus === 'idle' ||
+        action.payload.fanApplyStatus === 'applying' ||
+        action.payload.fanApplyStatus === 'applied' ||
+        action.payload.fanApplyStatus === 'error'
+      ) {
+        state.fanApplyStatus = action.payload.fanApplyStatus;
+      }
+      state.fanApplyError = action.payload.fanApplyError;
+      if (typeof action.payload.fanAppliedAt === 'number') {
+        state.fanAppliedAt = action.payload.fanAppliedAt;
+      }
     });
     builder.addCase(setCurrentGameId, (state, action) => {
       /*
@@ -197,6 +282,31 @@ export const selectEnableFullFanSpeedMode = (state: RootState) => {
   return Boolean(profile.fullFanSpeedEnabled);
 };
 
+export const selectActiveFanPreset = (state: RootState): FanPresetId => {
+  const profile = selectActiveFanProfile(state);
+
+  for (const [presetId, preset] of Object.entries(FAN_PRESETS)) {
+    if (
+      profile.fullFanSpeedEnabled === preset.fullFanSpeedEnabled &&
+      FAN_TEMPERATURES.every(
+        (temperature) => profile[temperature] === preset[temperature]
+      )
+    ) {
+      return presetId as SelectableFanPresetId;
+    }
+  }
+
+  return 'custom';
+};
+
+export const selectFanApplyStatus = (state: RootState) =>
+  state.fan.fanApplyStatus;
+
+export const selectFanApplyError = (state: RootState) =>
+  state.fan.fanApplyError;
+
+export const selectFanAppliedAt = (state: RootState) => state.fan.fanAppliedAt;
+
 // -------------
 // middleware
 // -------------
@@ -205,8 +315,92 @@ const mutatingActionTypes = [
   fanSlice.actions.setFanPerGameProfilesEnabled.type,
   fanSlice.actions.updateFanCurve.type,
   fanSlice.actions.updateFanProfiles.type,
+  fanSlice.actions.applyFanPreset.type,
+  fanSlice.actions.copyDefaultFanProfileToCurrent.type,
+  fanSlice.actions.setCustomFanCurvesEnabled.type,
   fanSlice.actions.setEnableFullFanSpeedMode.type
 ];
+
+const FAN_CURVE_SAVE_DEBOUNCE_MS = 200;
+let pendingFanSaveStore: any;
+let fanSaveTimer: ReturnType<typeof setTimeout> | undefined;
+let fanSaveInFlight = false;
+
+const queueFanSave = (store: any, debounce: boolean) => {
+  pendingFanSaveStore = store;
+  store.dispatch(fanSlice.actions.setFanApplyState({ status: 'applying' }));
+
+  if (fanSaveTimer) clearTimeout(fanSaveTimer);
+  fanSaveTimer = undefined;
+  if (debounce) {
+    fanSaveTimer = setTimeout(() => {
+      fanSaveTimer = undefined;
+      void flushFanSaveQueue();
+    }, FAN_CURVE_SAVE_DEBOUNCE_MS);
+  } else {
+    void flushFanSaveQueue();
+  }
+};
+
+const flushFanSaveQueue = async () => {
+  if (fanSaveInFlight || !pendingFanSaveStore) return;
+  fanSaveInFlight = true;
+  try {
+    while (pendingFanSaveStore) {
+      const store = pendingFanSaveStore;
+      pendingFanSaveStore = undefined;
+      const state = store.getState();
+      const {
+        fan: { fanProfiles, fanPerGameProfilesEnabled, customFanCurvesEnabled },
+        ui: { currentGameId: currentId }
+      } = state;
+      const currentGameId =
+        fanPerGameProfilesEnabled && currentId ? currentId : 'default';
+      const fanInfo = {
+        fanProfiles,
+        fanPerGameProfilesEnabled,
+        customFanCurvesEnabled
+      };
+
+      try {
+        const applied = await call<
+          [fanInfo: typeof fanInfo, currentGameId: string],
+          boolean
+        >('save_fan_settings', fanInfo, currentGameId);
+        if (!pendingFanSaveStore) {
+          store.dispatch(
+            fanSlice.actions.setFanApplyState(
+              applied
+                ? {
+                    status: customFanCurvesEnabled ? 'applied' : 'idle',
+                    appliedAt: Date.now()
+                  }
+                : {
+                    status: 'error',
+                    error: 'The firmware did not accept the active fan profile'
+                  }
+            )
+          );
+        }
+      } catch (error) {
+        if (!pendingFanSaveStore) {
+          store.dispatch(
+            fanSlice.actions.setFanApplyState({
+              status: 'error',
+              error:
+                error instanceof Error
+                  ? error.message
+                  : 'Could not apply the active fan profile'
+            })
+          );
+        }
+      }
+    }
+  } finally {
+    fanSaveInFlight = false;
+    if (pendingFanSaveStore) void flushFanSaveQueue();
+  }
+};
 
 export const saveFanSettingsMiddleware =
   (store: any) => (next: any) => (action: any) => {
@@ -217,50 +411,19 @@ export const saveFanSettingsMiddleware =
     const state = store.getState();
 
     const {
-      fan: { fanPerGameProfilesEnabled, customFanCurvesEnabled },
-      ui: { currentGameId: currentId }
+      fan: { customFanCurvesEnabled }
     } = state;
 
-    let currentGameId;
-    if (fanPerGameProfilesEnabled && currentId) {
-      currentGameId = currentId;
-    } else {
-      currentGameId = 'default';
-    }
-
     if (type === setCurrentGameId.type && customFanCurvesEnabled) {
-      setFanCurve(state, currentGameId);
-    }
-
-    if (type === fanSlice.actions.setCustomFanCurvesEnabled.type) {
-      if (action.payload === false) {
-        call('disable_fan_profiles', true).catch(() => {});
-      } else {
-        setFanCurve(state, currentGameId);
-      }
+      queueFanSave(store, false);
     }
 
     if (mutatingActionTypes.includes(type)) {
-      // save changes to backend
-      setFanCurve(state, currentGameId);
+      queueFanSave(store, type === fanSlice.actions.updateFanCurve.type);
     }
 
     return result;
   };
-
-function setFanCurve(state: any, currentGameId: string) {
-  const {
-    fan: { fanProfiles, fanPerGameProfilesEnabled, customFanCurvesEnabled }
-  } = state;
-
-  const fanInfo = {
-    fanProfiles,
-    fanPerGameProfilesEnabled,
-    customFanCurvesEnabled
-  };
-
-  call('save_fan_settings', fanInfo, currentGameId).catch(() => {});
-}
 
 // -------------
 // Slice Util functions

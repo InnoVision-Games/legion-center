@@ -14,6 +14,10 @@ type UiStateType = {
   currentGameId: undefined | string;
   currentDisplayName: undefined | string;
   chargeLimitEnabled?: boolean;
+  chargeLimitPercent: number;
+  chargeLimitConfigurable: boolean;
+  chargeLimitMinPercent: number;
+  chargeLimitMaxPercent: number;
   supportsChargeLimit: boolean;
   chargeLimitBackend?: string;
   chargeLimitBusy: boolean;
@@ -23,6 +27,10 @@ type UiStateType = {
   acpiCallDkmsEnabled: boolean;
   acpiCallDkmsInstalled: boolean;
   acpiCallDkmsBusy: boolean;
+  acpiCallDkmsProgress: number;
+  acpiCallDkmsStage: string;
+  acpiCallDkmsDetail?: string;
+  acpiCallDkmsElapsedSeconds: number;
   acpiCallDkmsError?: string;
 };
 
@@ -33,11 +41,19 @@ const initialState: UiStateType = {
   currentDisplayName: undefined,
   pluginVersionNum: '',
   supportsChargeLimit: false,
+  chargeLimitPercent: 100,
+  chargeLimitConfigurable: false,
+  chargeLimitMinPercent: 80,
+  chargeLimitMaxPercent: 100,
   chargeLimitBusy: false,
   powerLedEnabled: true,
   acpiCallDkmsEnabled: false,
   acpiCallDkmsInstalled: false,
   acpiCallDkmsBusy: false,
+  acpiCallDkmsProgress: 0,
+  acpiCallDkmsStage: 'Idle',
+  acpiCallDkmsDetail: undefined,
+  acpiCallDkmsElapsedSeconds: 0,
   acpiCallDkmsError: undefined
 };
 
@@ -49,11 +65,16 @@ export const uiSlice = createSlice({
     setInitialLoading: (state, action: PayloadAction<boolean>) => {
       state.initialLoading = action.payload;
     },
-    setChargeLimit(state, action: PayloadAction<boolean>) {
-      state.chargeLimitEnabled = action.payload;
+    setChargeLimitPercent(state, action: PayloadAction<number>) {
+      state.chargeLimitPercent = action.payload;
+      state.chargeLimitEnabled = action.payload < 100;
     },
-    syncChargeLimitState(state, action: PayloadAction<boolean>) {
-      state.chargeLimitEnabled = action.payload;
+    syncChargeLimitState(
+      state,
+      action: PayloadAction<{ enabled: boolean; limit: number }>
+    ) {
+      state.chargeLimitEnabled = action.payload.enabled;
+      state.chargeLimitPercent = action.payload.limit;
     },
     setChargeLimitBusy(state, action: PayloadAction<boolean>) {
       state.chargeLimitBusy = action.payload;
@@ -73,6 +94,26 @@ export const uiSlice = createSlice({
     setAcpiCallDkmsBusy(state, action: PayloadAction<boolean>) {
       state.acpiCallDkmsBusy = action.payload;
     },
+    setAcpiCallDkmsProgress(
+      state,
+      action: PayloadAction<{
+        progress?: number;
+        stage?: string;
+        detail?: string;
+        elapsedSeconds?: number;
+      }>
+    ) {
+      if (typeof action.payload.progress === 'number') {
+        state.acpiCallDkmsProgress = action.payload.progress;
+      }
+      if (typeof action.payload.stage === 'string') {
+        state.acpiCallDkmsStage = action.payload.stage;
+      }
+      state.acpiCallDkmsDetail = action.payload.detail;
+      if (typeof action.payload.elapsedSeconds === 'number') {
+        state.acpiCallDkmsElapsedSeconds = action.payload.elapsedSeconds;
+      }
+    },
     setAcpiCallDkmsError(state, action: PayloadAction<string | undefined>) {
       state.acpiCallDkmsError = action.payload;
     }
@@ -85,6 +126,21 @@ export const uiSlice = createSlice({
       }
       if (typeof action.payload?.chargeLimitEnabled === 'boolean') {
         state.chargeLimitEnabled = Boolean(action.payload?.chargeLimitEnabled);
+      }
+      if (typeof action.payload?.chargeLimitPercent === 'number') {
+        state.chargeLimitPercent = action.payload.chargeLimitPercent;
+      } else if (state.chargeLimitEnabled) {
+        // Backward compatibility for a v0.1.x settings file.
+        state.chargeLimitPercent = 80;
+      }
+      state.chargeLimitConfigurable = Boolean(
+        action.payload?.chargeLimitConfigurable
+      );
+      if (typeof action.payload?.chargeLimitMinPercent === 'number') {
+        state.chargeLimitMinPercent = action.payload.chargeLimitMinPercent;
+      }
+      if (typeof action.payload?.chargeLimitMaxPercent === 'number') {
+        state.chargeLimitMaxPercent = action.payload.chargeLimitMaxPercent;
       }
       state.supportsChargeLimit = Boolean(action.payload?.supportsChargeLimit);
       state.chargeLimitBackend = action.payload?.chargeLimitBackend;
@@ -100,6 +156,17 @@ export const uiSlice = createSlice({
       }
       if (typeof action.payload?.acpiCallDkmsBusy === 'boolean') {
         state.acpiCallDkmsBusy = action.payload.acpiCallDkmsBusy;
+      }
+      if (typeof action.payload?.acpiCallDkmsProgress === 'number') {
+        state.acpiCallDkmsProgress = action.payload.acpiCallDkmsProgress;
+      }
+      if (typeof action.payload?.acpiCallDkmsStage === 'string') {
+        state.acpiCallDkmsStage = action.payload.acpiCallDkmsStage;
+      }
+      state.acpiCallDkmsDetail = action.payload?.acpiCallDkmsDetail;
+      if (typeof action.payload?.acpiCallDkmsElapsedSeconds === 'number') {
+        state.acpiCallDkmsElapsedSeconds =
+          action.payload.acpiCallDkmsElapsedSeconds;
       }
     });
     builder.addCase(setCurrentGameId, (state, action) => {
@@ -125,6 +192,18 @@ export const selectCurrentGameDisplayName = (state: RootState) =>
 export const selectChargeLimitEnabled = (state: RootState) =>
   Boolean(state.ui?.chargeLimitEnabled);
 
+export const selectChargeLimitPercent = (state: RootState) =>
+  state.ui?.chargeLimitPercent ?? 100;
+
+export const selectChargeLimitConfigurable = (state: RootState) =>
+  Boolean(state.ui?.chargeLimitConfigurable);
+
+export const selectChargeLimitMinPercent = (state: RootState) =>
+  state.ui?.chargeLimitMinPercent ?? 80;
+
+export const selectChargeLimitMaxPercent = (state: RootState) =>
+  state.ui?.chargeLimitMaxPercent ?? 100;
+
 export const selectSupportsChargeLimit = (state: RootState) =>
   Boolean(state.ui?.supportsChargeLimit);
 
@@ -149,6 +228,18 @@ export const selectAcpiCallDkmsInstalled = (state: RootState) =>
 export const selectAcpiCallDkmsBusy = (state: RootState) =>
   Boolean(state.ui?.acpiCallDkmsBusy);
 
+export const selectAcpiCallDkmsProgress = (state: RootState) =>
+  state.ui?.acpiCallDkmsProgress ?? 0;
+
+export const selectAcpiCallDkmsStage = (state: RootState) =>
+  state.ui?.acpiCallDkmsStage ?? 'Idle';
+
+export const selectAcpiCallDkmsDetail = (state: RootState) =>
+  state.ui?.acpiCallDkmsDetail;
+
+export const selectAcpiCallDkmsElapsedSeconds = (state: RootState) =>
+  state.ui?.acpiCallDkmsElapsedSeconds ?? 0;
+
 export const selectAcpiCallDkmsError = (state: RootState) =>
   state.ui?.acpiCallDkmsError;
 
@@ -160,10 +251,13 @@ export const uiSliceMiddleware =
     const previousChargeLimitEnabled = selectChargeLimitEnabled(
       store.getState()
     );
+    const previousChargeLimitPercent = selectChargeLimitPercent(
+      store.getState()
+    );
 
     const result = next(action);
 
-    if (type === uiSlice.actions.setChargeLimit.type) {
+    if (type === uiSlice.actions.setChargeLimitPercent.type) {
       const requestSequence = ++chargeLimitRequestSequence;
       store.dispatch(uiSlice.actions.setChargeLimitBusy(true));
       store.dispatch(uiSlice.actions.setChargeLimitError(undefined));
@@ -172,11 +266,20 @@ export const uiSliceMiddleware =
           if (requestSequence !== chargeLimitRequestSequence) return;
           if (response?.success) {
             store.dispatch(
-              uiSlice.actions.syncChargeLimitState(Boolean(response.enabled))
+              uiSlice.actions.syncChargeLimitState({
+                enabled: Boolean(response.enabled),
+                limit:
+                  typeof response.limit === 'number'
+                    ? response.limit
+                    : action.payload
+              })
             );
           } else {
             store.dispatch(
-              uiSlice.actions.syncChargeLimitState(previousChargeLimitEnabled)
+              uiSlice.actions.syncChargeLimitState({
+                enabled: previousChargeLimitEnabled,
+                limit: previousChargeLimitPercent
+              })
             );
             store.dispatch(
               uiSlice.actions.setChargeLimitError(
@@ -188,7 +291,10 @@ export const uiSliceMiddleware =
         .catch((error) => {
           if (requestSequence !== chargeLimitRequestSequence) return;
           store.dispatch(
-            uiSlice.actions.syncChargeLimitState(previousChargeLimitEnabled)
+            uiSlice.actions.syncChargeLimitState({
+              enabled: previousChargeLimitEnabled,
+              limit: previousChargeLimitPercent
+            })
           );
           store.dispatch(
             uiSlice.actions.setChargeLimitError(

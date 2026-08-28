@@ -35,8 +35,13 @@ Included Functionality in this plugin:
 - Enabling/Disabling the touchpad
 - Gyro remapping to Left or Right Control Stick
 - allow any of these settings on a per-game basis
-- 80% charge limit through the native Lenovo battery interface when available
-- Custom fan curves through `acpi_call`
+- Battery charge protection through the native Linux interface when available,
+  including selectable percentages on hardware with a writable threshold and
+  the Legion Go's fixed 80% long-life mode as a fallback
+- Quiet, Balanced, and Aggressive Cooling fan presets
+- Custom global and per-game fan curves through `acpi_call`
+- Live temperature and curve-application status
+- Portable JSON fan-profile backups plus global-to-game profile copying
 
 # Install Instructions
 
@@ -114,21 +119,44 @@ sudo systemctl reboot
 
 Note that this is using the fan curve implementation in the Legion Go's bios. This may require additional bios update from Lenovo to become fully functional.
 
+Choose **Quiet**, **Balanced**, or **Aggressive Cooling** for a ready-made
+curve. Moving any curve slider changes the active profile to **Custom**. When
+per-game curves are enabled, choosing a preset changes only the current game's
+profile.
+
+The fan panel shows the current temperature, the latest curve-application
+result, and how recently telemetry was sampled. Curve controls expand directly
+below the temperature reading so changes and their application status stay
+together.
+
+Use **Copy Global Curve to This Game** to start a per-game profile from the
+global curve. **Export Fan Profiles** saves every global and per-game profile
+as a portable JSON file. Importing one merges its profiles by game ID and
+automatically saves the previous profiles as
+`legion-center-fan-profiles-before-last-import.json` first.
+
+Rapid slider changes are coalesced and applied to the firmware sequentially.
+This prevents overlapping ACPI writes while keeping the final slider position
+as the value that is saved.
+
 Fan support can be installed entirely from the plugin in Gaming Mode:
 
 1. Open Legion Center.
 2. Scroll to **System**.
 3. Select **Install Fan Support** and confirm.
 4. Keep the device awake while the plugin downloads the exact kernel packages,
-   builds `acpi_call` through DKMS, and verifies `/proc/acpi/call`.
+   builds `acpi_call` through DKMS, and verifies `/proc/acpi/call`. The panel
+   shows the active phase, download progress, and elapsed time throughout.
 5. Enable custom fan curves after the status changes to **Ready**.
 
 No Desktop Mode, Konsole commands, or manual header installation is required.
 The initial setup needs an internet connection and can take several minutes.
+It also installs the update self-heal hook so fan support can be rebuilt in the
+new SteamOS image automatically when the kernel changes.
 
-SteamOS updates can replace the kernel. If fan support shows **Repair needed**
-after an update, select **Repair Fan Support** from the same panel. The repair
-runs entirely inside the plugin.
+If fan support still shows **Repair needed** after an update, select **Repair
+Fan Support** from the same panel. The fallback repair runs entirely inside the
+plugin.
 
 # Troubleshooting / Frequently Asked Questions
 

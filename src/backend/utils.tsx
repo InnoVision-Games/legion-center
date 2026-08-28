@@ -1,6 +1,7 @@
 import { call, fetchNoCors } from '@decky/api';
 import { Router } from '@decky/ui';
 import { RemapActions, RemappableButtons } from './constants';
+import type { FanProfiles } from '../redux-modules/fanSlice';
 
 export enum ServerAPIMethods {
   REMAP_BUTTON = 'remap_button',
@@ -8,6 +9,9 @@ export enum ServerAPIMethods {
   GET_SETTINGS = 'get_settings',
   SET_POWER_LED = 'set_power_led',
   SET_CHARGE_LIMIT = 'set_charge_limit',
+  GET_FAN_TELEMETRY = 'get_fan_telemetry',
+  EXPORT_FAN_PROFILES = 'export_fan_profiles',
+  IMPORT_FAN_PROFILES = 'import_fan_profiles',
   GET_ACPI_CALL_DKMS_STATUS = 'get_acpi_call_dkms_status',
   SET_ACPI_CALL_DKMS_ENABLED = 'set_acpi_call_dkms_enabled'
 }
@@ -17,12 +21,20 @@ export type AcpiCallDkmsStatus = {
   installed: boolean;
   managed?: boolean;
   busy: boolean;
+  progress: number;
+  stage: string;
+  detail?: string;
+  elapsedSeconds: number;
 };
 
 export type AcpiCallDkmsResult = {
   success: boolean;
   enabled?: boolean;
   installed?: boolean;
+  progress?: number;
+  stage?: string;
+  detail?: string;
+  elapsedSeconds?: number;
   error?: string;
 };
 
@@ -30,7 +42,29 @@ export type ChargeLimitResult = {
   success: boolean;
   supported?: boolean;
   enabled?: boolean;
+  limit?: number;
+  configurable?: boolean;
+  minimum?: number;
+  maximum?: number;
   backend?: string;
+  error?: string;
+};
+
+export type FanTelemetry = {
+  available: boolean;
+  temperatureC?: number | null;
+  temperatureLabel?: string | null;
+  temperatureSource?: string | null;
+  sampledAt: number;
+  error?: string;
+};
+
+export type FanProfileTransferResult = {
+  success: boolean;
+  path?: string;
+  profiles?: FanProfiles;
+  count?: number;
+  backupPath?: string;
   error?: string;
 };
 
@@ -56,15 +90,33 @@ export const setPowerLed = async (enabled: boolean) => {
   await call<[enabled: boolean], void>(ServerAPIMethods.SET_POWER_LED, enabled);
 };
 
-export const setChargeLimit = async (enabled: boolean) => {
-  return await call<[enabled: boolean], ChargeLimitResult>(
+export const setChargeLimit = async (limit: number) => {
+  return await call<[limit: number], ChargeLimitResult>(
     ServerAPIMethods.SET_CHARGE_LIMIT,
-    enabled
+    limit
   );
 };
 
 export const getSettings = async () => {
   return await call<[], { [s: string]: any }>(ServerAPIMethods.GET_SETTINGS);
+};
+
+export const getFanTelemetry = async () => {
+  return await call<[], FanTelemetry>(ServerAPIMethods.GET_FAN_TELEMETRY);
+};
+
+export const exportFanProfiles = async (directory: string) => {
+  return await call<[directory: string], FanProfileTransferResult>(
+    ServerAPIMethods.EXPORT_FAN_PROFILES,
+    directory
+  );
+};
+
+export const importFanProfiles = async (path: string) => {
+  return await call<[path: string], FanProfileTransferResult>(
+    ServerAPIMethods.IMPORT_FAN_PROFILES,
+    path
+  );
 };
 
 export const extractDisplayName = () =>

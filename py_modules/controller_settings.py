@@ -10,12 +10,22 @@ setting_file.read()
 TRANSIENT_STATUS_KEYS = (
     'pluginVersionNum',
     'supportsCustomFanCurves',
+    'fanApplyStatus',
+    'fanApplyError',
+    'fanAppliedAt',
     'supportsChargeLimit',
     'chargeLimitBackend',
+    'chargeLimitConfigurable',
+    'chargeLimitMinPercent',
+    'chargeLimitMaxPercent',
     'chargeLimitError',
     'acpiCallDkmsEnabled',
     'acpiCallDkmsBusy',
     'acpiCallDkmsInstalled',
+    'acpiCallDkmsProgress',
+    'acpiCallDkmsStage',
+    'acpiCallDkmsDetail',
+    'acpiCallDkmsElapsedSeconds',
 )
 
 def deep_merge(origin, destination):

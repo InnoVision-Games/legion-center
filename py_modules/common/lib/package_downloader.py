@@ -29,7 +29,6 @@
 """Shared, hardened package-file downloader used across this project."""
 
 import os
-import shutil
 import socket
 import ssl
 import urllib.parse
@@ -110,7 +109,7 @@ class PackageDownloader:
         verbose: Whether the default log hook actually prints anything.
     """
 
-    def __init__(self, dest_dir, verbose=False, log=None, warn=None):
+    def __init__(self, dest_dir, verbose=False, log=None, warn=None, progress=None):
         """Initialize the downloader.
 
         Args:
@@ -121,11 +120,27 @@ class PackageDownloader:
                 logging instead of the default.
             warn: Optional callable(message) used for warning logging
                 instead of the default.
+            progress: Optional callable(downloaded_bytes, total_bytes,
+                filename) used to report streaming download progress.
+                total_bytes is None when the server does not provide a
+                Content-Length header.
         """
         self.dest_dir = Path(dest_dir)
         self.verbose = verbose
         self._log_fn = log or (lambda message: print(message) if self.verbose else None)
         self._warn_fn = warn or (lambda message: print('WARNING: %s' % message))
+        self._progress_fn = progress
+
+    def _report_progress(self, downloaded, total, filename):
+        if self._progress_fn is not None:
+            try:
+                self._progress_fn(downloaded, total, filename)
+            except Exception as exc:
+                # Monitoring must never turn a valid package download into
+                # an installer failure. Disable a broken callback after the
+                # first error so a large file does not flood the log.
+                self._progress_fn = None
+                self._warn_fn('download progress callback failed: %s' % exc)
 
     def url_exists(self, url):
         """Check whether url responds with a 2xx status.
@@ -177,6 +192,8 @@ class PackageDownloader:
 
         if dest.exists() and dest.stat().st_size > 0:
             self._log_fn('Cached: %s' % filename)
+            size = dest.stat().st_size
+            self._report_progress(size, size, filename)
             return dest
 
         self._log_fn('Downloading %s' % filename)
@@ -185,7 +202,20 @@ class PackageDownloader:
         try:
             with urllib.request.urlopen(url, context=_default_ssl_context()) as resp, \
                     open(part, 'wb') as f:
-                shutil.copyfileobj(resp, f)
+                total_header = resp.headers.get('Content-Length')
+                try:
+                    total = int(total_header) if total_header else None
+                except (TypeError, ValueError):
+                    total = None
+                downloaded = 0
+                self._report_progress(downloaded, total, filename)
+                while True:
+                    chunk = resp.read(1024 * 1024)
+                    if not chunk:
+                        break
+                    f.write(chunk)
+                    downloaded += len(chunk)
+                    self._report_progress(downloaded, total, filename)
             part.rename(dest)
         except Exception as exc:
             raise RuntimeError('download failed: %s (%s)' % (url, exc)) from exc
