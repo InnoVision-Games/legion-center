@@ -25,6 +25,7 @@ import {
   selectCurrentGameId
 } from '../../redux-modules/uiSlice';
 import FanCurveSliders from './FanCurveSliders';
+import FanProfileTools from './FanProfileTools';
 import FanTelemetryRows from './FanTelemetryRows';
 import { IoMdArrowDropdown, IoMdArrowDropup } from 'react-icons/io';
 
@@ -187,6 +188,7 @@ const FanPanel = () => {
               </PanelSectionRow>
             )}
             {showSliders && !enableFullFanSpeedMode && <FanCurveSliders />}
+            <FanProfileTools />
           </>
         )}
       </PanelSection>

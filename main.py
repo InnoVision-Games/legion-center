@@ -361,6 +361,41 @@ class Plugin:
                 'error': str(e),
             }
 
+    async def export_fan_profiles(self, directory):
+        try:
+            profiles = (settings.get_settings().get('fan') or {})
+            path = fan_profiles.export_profile_bundle(
+                profiles,
+                directory,
+                str(decky.DECKY_PLUGIN_VERSION),
+            )
+            return {'success': True, 'path': str(path)}
+        except Exception as e:
+            decky.logger.error(f'export_fan_profiles error {e}')
+            return {'success': False, 'error': str(e)}
+
+    async def import_fan_profiles(self, path):
+        try:
+            imported = fan_profiles.load_profile_bundle(path)
+            existing = settings.get_settings().get('fan') or {}
+            backup_path = None
+            if existing:
+                backup_path = fan_profiles.write_import_backup(
+                    existing,
+                    decky.DECKY_PLUGIN_SETTINGS_DIR,
+                    str(decky.DECKY_PLUGIN_VERSION),
+                )
+            settings.set_all_fan_profiles(imported)
+            return {
+                'success': True,
+                'profiles': imported,
+                'count': len(imported),
+                'backupPath': str(backup_path) if backup_path else None,
+            }
+        except Exception as e:
+            decky.logger.error(f'import_fan_profiles error {e}')
+            return {'success': False, 'error': str(e)}
+
     async def set_power_led(self, enabled):
         # Wrapped in try/except (matching set_charge_limit below) so that
         # an exception anywhere in here -- including inside
