@@ -2,9 +2,13 @@ import { useEffect, useRef } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import {
   selectAcpiCallDkmsBusy,
+  selectAcpiCallDkmsDetail,
   selectAcpiCallDkmsEnabled,
+  selectAcpiCallDkmsElapsedSeconds,
   selectAcpiCallDkmsError,
   selectAcpiCallDkmsInstalled,
+  selectAcpiCallDkmsProgress,
+  selectAcpiCallDkmsStage,
   selectChargeLimitBackend,
   selectChargeLimitBusy,
   selectChargeLimitConfigurable,
@@ -35,7 +39,8 @@ import {
 // hardware to require restarting Decky to clear. Polling the real status
 // means the UI catches up to whatever actually happened within one poll
 // interval instead of staying wrong until a reload.
-const ACPI_CALL_DKMS_POLL_INTERVAL_MS = 5000;
+const ACPI_CALL_DKMS_IDLE_POLL_INTERVAL_MS = 5000;
+const ACPI_CALL_DKMS_BUSY_POLL_INTERVAL_MS = 1000;
 
 export const useChargeLimit = () => {
   const chargeLimitEnabled = useSelector(selectChargeLimitEnabled);
@@ -82,12 +87,18 @@ export const usePowerLed = () => {
 // several minutes (downloading kernel packages, building/registering a DKMS
 // module). Unlike the other toggles above, this one is NOT wired through
 // uiSliceMiddleware's fire-and-forget pattern -- the hook awaits the backend
-// call itself so it can drive a busy/error state the UI can show a spinner
-// and error message for while the operation is in flight.
+// call itself so it can drive busy/error/progress state while the operation
+// is in flight.
 export const useAcpiCallDkms = () => {
   const acpiCallDkmsEnabled = useSelector(selectAcpiCallDkmsEnabled);
   const acpiCallDkmsInstalled = useSelector(selectAcpiCallDkmsInstalled);
   const acpiCallDkmsBusy = useSelector(selectAcpiCallDkmsBusy);
+  const acpiCallDkmsProgress = useSelector(selectAcpiCallDkmsProgress);
+  const acpiCallDkmsStage = useSelector(selectAcpiCallDkmsStage);
+  const acpiCallDkmsDetail = useSelector(selectAcpiCallDkmsDetail);
+  const acpiCallDkmsElapsedSeconds = useSelector(
+    selectAcpiCallDkmsElapsedSeconds
+  );
   const acpiCallDkmsError = useSelector(selectAcpiCallDkmsError);
   const dispatch = useDispatch();
 
@@ -106,6 +117,14 @@ export const useAcpiCallDkms = () => {
     inFlightRef.current = true;
 
     dispatch(uiSlice.actions.setAcpiCallDkmsBusy(true));
+    dispatch(
+      uiSlice.actions.setAcpiCallDkmsProgress({
+        progress: 0,
+        stage: 'Starting',
+        detail: 'Launching the fan-support installer',
+        elapsedSeconds: 0
+      })
+    );
     dispatch(uiSlice.actions.setAcpiCallDkmsError(undefined));
 
     try {
@@ -120,7 +139,23 @@ export const useAcpiCallDkms = () => {
         if (typeof result.installed === 'boolean') {
           dispatch(uiSlice.actions.setAcpiCallDkmsInstalled(result.installed));
         }
+        dispatch(
+          uiSlice.actions.setAcpiCallDkmsProgress({
+            progress: result.progress,
+            stage: result.stage,
+            detail: result.detail,
+            elapsedSeconds: result.elapsedSeconds
+          })
+        );
       } else {
+        dispatch(
+          uiSlice.actions.setAcpiCallDkmsProgress({
+            progress: result?.progress,
+            stage: result?.stage || 'Failed',
+            detail: result?.detail,
+            elapsedSeconds: result?.elapsedSeconds
+          })
+        );
         dispatch(
           uiSlice.actions.setAcpiCallDkmsError(
             result?.error || 'Failed to update acpi_call dkms status'
@@ -142,7 +177,9 @@ export const useAcpiCallDkms = () => {
   };
 
   // Background poll of the backend's real status -- see
-  // ACPI_CALL_DKMS_POLL_INTERVAL_MS above for why this exists. prevBusyRef
+  // ACPI_CALL_DKMS_IDLE_POLL_INTERVAL_MS above for why this exists. It polls
+  // more frequently during an operation so phase and elapsed-time updates feel
+  // live. prevBusyRef
   // tracks the last-seen busy value so we only clear a possibly-stale
   // error message on the specific moment a server-side operation this tab
   // may have lost track of actually finishes, rather than on every idle
@@ -154,19 +191,28 @@ export const useAcpiCallDkms = () => {
     let cancelled = false;
 
     const poll = async () => {
-      // Don't fight with our own in-flight call's state updates -- let
-      // its own try/finally be the source of truth while it's running.
-      if (inFlightRef.current) {
-        return;
-      }
       try {
         const status = await getAcpiCallDkmsStatus();
         if (cancelled || !status) {
           return;
         }
+        // A just-started local RPC can briefly win the race against the
+        // backend setting its busy flag. Don't let that one stale idle poll
+        // hide the progress UI while the request itself is still in flight.
+        if (inFlightRef.current && !status.busy) {
+          return;
+        }
         dispatch(uiSlice.actions.setAcpiCallDkmsEnabled(status.enabled));
         dispatch(uiSlice.actions.setAcpiCallDkmsInstalled(status.installed));
         dispatch(uiSlice.actions.setAcpiCallDkmsBusy(status.busy));
+        dispatch(
+          uiSlice.actions.setAcpiCallDkmsProgress({
+            progress: status.progress,
+            stage: status.stage,
+            detail: status.detail,
+            elapsedSeconds: status.elapsedSeconds
+          })
+        );
         if (prevBusyRef.current && !status.busy) {
           dispatch(uiSlice.actions.setAcpiCallDkmsError(undefined));
         }
@@ -177,17 +223,27 @@ export const useAcpiCallDkms = () => {
       }
     };
 
-    const interval = setInterval(poll, ACPI_CALL_DKMS_POLL_INTERVAL_MS);
+    void poll();
+    const interval = setInterval(
+      poll,
+      acpiCallDkmsBusy
+        ? ACPI_CALL_DKMS_BUSY_POLL_INTERVAL_MS
+        : ACPI_CALL_DKMS_IDLE_POLL_INTERVAL_MS
+    );
     return () => {
       cancelled = true;
       clearInterval(interval);
     };
-  }, [dispatch]);
+  }, [acpiCallDkmsBusy, dispatch]);
 
   return {
     acpiCallDkmsEnabled,
     acpiCallDkmsInstalled,
     acpiCallDkmsBusy,
+    acpiCallDkmsProgress,
+    acpiCallDkmsStage,
+    acpiCallDkmsDetail,
+    acpiCallDkmsElapsedSeconds,
     acpiCallDkmsError,
     setAcpiCallDkmsEnabled
   };

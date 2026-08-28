@@ -27,6 +27,10 @@ type UiStateType = {
   acpiCallDkmsEnabled: boolean;
   acpiCallDkmsInstalled: boolean;
   acpiCallDkmsBusy: boolean;
+  acpiCallDkmsProgress: number;
+  acpiCallDkmsStage: string;
+  acpiCallDkmsDetail?: string;
+  acpiCallDkmsElapsedSeconds: number;
   acpiCallDkmsError?: string;
 };
 
@@ -46,6 +50,10 @@ const initialState: UiStateType = {
   acpiCallDkmsEnabled: false,
   acpiCallDkmsInstalled: false,
   acpiCallDkmsBusy: false,
+  acpiCallDkmsProgress: 0,
+  acpiCallDkmsStage: 'Idle',
+  acpiCallDkmsDetail: undefined,
+  acpiCallDkmsElapsedSeconds: 0,
   acpiCallDkmsError: undefined
 };
 
@@ -85,6 +93,26 @@ export const uiSlice = createSlice({
     },
     setAcpiCallDkmsBusy(state, action: PayloadAction<boolean>) {
       state.acpiCallDkmsBusy = action.payload;
+    },
+    setAcpiCallDkmsProgress(
+      state,
+      action: PayloadAction<{
+        progress?: number;
+        stage?: string;
+        detail?: string;
+        elapsedSeconds?: number;
+      }>
+    ) {
+      if (typeof action.payload.progress === 'number') {
+        state.acpiCallDkmsProgress = action.payload.progress;
+      }
+      if (typeof action.payload.stage === 'string') {
+        state.acpiCallDkmsStage = action.payload.stage;
+      }
+      state.acpiCallDkmsDetail = action.payload.detail;
+      if (typeof action.payload.elapsedSeconds === 'number') {
+        state.acpiCallDkmsElapsedSeconds = action.payload.elapsedSeconds;
+      }
     },
     setAcpiCallDkmsError(state, action: PayloadAction<string | undefined>) {
       state.acpiCallDkmsError = action.payload;
@@ -128,6 +156,17 @@ export const uiSlice = createSlice({
       }
       if (typeof action.payload?.acpiCallDkmsBusy === 'boolean') {
         state.acpiCallDkmsBusy = action.payload.acpiCallDkmsBusy;
+      }
+      if (typeof action.payload?.acpiCallDkmsProgress === 'number') {
+        state.acpiCallDkmsProgress = action.payload.acpiCallDkmsProgress;
+      }
+      if (typeof action.payload?.acpiCallDkmsStage === 'string') {
+        state.acpiCallDkmsStage = action.payload.acpiCallDkmsStage;
+      }
+      state.acpiCallDkmsDetail = action.payload?.acpiCallDkmsDetail;
+      if (typeof action.payload?.acpiCallDkmsElapsedSeconds === 'number') {
+        state.acpiCallDkmsElapsedSeconds =
+          action.payload.acpiCallDkmsElapsedSeconds;
       }
     });
     builder.addCase(setCurrentGameId, (state, action) => {
@@ -188,6 +227,18 @@ export const selectAcpiCallDkmsInstalled = (state: RootState) =>
 
 export const selectAcpiCallDkmsBusy = (state: RootState) =>
   Boolean(state.ui?.acpiCallDkmsBusy);
+
+export const selectAcpiCallDkmsProgress = (state: RootState) =>
+  state.ui?.acpiCallDkmsProgress ?? 0;
+
+export const selectAcpiCallDkmsStage = (state: RootState) =>
+  state.ui?.acpiCallDkmsStage ?? 'Idle';
+
+export const selectAcpiCallDkmsDetail = (state: RootState) =>
+  state.ui?.acpiCallDkmsDetail;
+
+export const selectAcpiCallDkmsElapsedSeconds = (state: RootState) =>
+  state.ui?.acpiCallDkmsElapsedSeconds ?? 0;
 
 export const selectAcpiCallDkmsError = (state: RootState) =>
   state.ui?.acpiCallDkmsError;

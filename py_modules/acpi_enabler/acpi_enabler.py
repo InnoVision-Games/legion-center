@@ -165,7 +165,7 @@ class AcpiEnabler:
     _C_WARN = '\033[1;33m'    # yellow  — [warn]
     _C_FAIL = '\033[1;31m'    # red     — [fail]
 
-    def __init__(self, workdir=None, verbose=False):
+    def __init__(self, workdir=None, verbose=False, progress_callback=None):
         """Initialize the enabler.
 
         Args:
@@ -173,9 +173,13 @@ class AcpiEnabler:
                 to ".acpi-enabler-work" in the current directory.
             verbose: If True, print each underlying shell command as it
                 runs.
+            progress_callback: Optional callable receiving a dictionary
+                with percent, stage, and detail fields as enablement moves
+                through its long-running phases.
         """
         self.verbose = verbose
         self.workdir = Path(workdir) if workdir else Path('.acpi-enabler-work')
+        self._progress_callback = progress_callback
 
         self.os_version = None
         self.kernel_modules_filename = None
@@ -189,6 +193,7 @@ class AcpiEnabler:
         self._downloader = PackageDownloader(
             self.workdir / 'pkgs', verbose=self.verbose,
             log=self._log, warn=self._warn,
+            progress=self._report_download_progress,
         )
 
     # ------------------------------------------------------------ logging
@@ -205,6 +210,44 @@ class AcpiEnabler:
 
     def _die(self, message):
         raise RuntimeError('%s %s' % (self._colorize(self._C_FAIL, '[fail]'), message))
+
+    def _set_progress(self, percent, stage, detail=None):
+        """Report structured, monotonic progress to an optional UI callback."""
+        callback = getattr(self, '_progress_callback', None)
+        if callback is None:
+            return
+        callback({
+            'percent': max(0, min(100, int(percent))),
+            'stage': stage,
+            'detail': detail,
+        })
+
+    def _report_download_progress(self, downloaded, total, filename):
+        """Map each of the two package downloads into the install timeline."""
+        if filename == self.kernel_modules_filename:
+            base, span = 16, 9
+        else:
+            base, span = 25, 10
+
+        if total:
+            fraction = min(1.0, float(downloaded) / float(total))
+            percent = base + int(span * fraction)
+            detail = '%s (%d%%)' % (filename, int(fraction * 100))
+        else:
+            percent = base
+            detail = '%s (%s downloaded)' % (
+                filename,
+                self._format_bytes(downloaded),
+            )
+        self._set_progress(percent, 'Downloading kernel packages', detail)
+
+    @staticmethod
+    def _format_bytes(value):
+        amount = float(value)
+        for unit in ('B', 'KiB', 'MiB', 'GiB'):
+            if amount < 1024 or unit == 'GiB':
+                return '%.1f %s' % (amount, unit)
+            amount /= 1024
 
     # -------------------------------------------------------- child env
     def _child_env(self):
@@ -832,10 +875,12 @@ class AcpiEnabler:
                 overlay, or the final dkms install doesn't report
                 acpi_call as installed.
         """
+        self._set_progress(48, 'Preparing DKMS', 'Checking the host build service')
         self._ensure_host_dkms()
 
         kernel_release = platform.release()
         if self._acpi_call_installed(kernel_release):
+            self._set_progress(88, 'Loading fan support', 'Using the existing DKMS build')
             self._log('acpi_call already installed for %s' % kernel_release)
             self._run(['sudo', 'modprobe', self.ACPI_CALL_MODULE])
             Path('/etc/modules-load.d/acpi_call.conf').write_text(
@@ -847,6 +892,7 @@ class AcpiEnabler:
             self._die("git is required to build acpi_call and wasn't found on PATH")
             return
 
+        self._set_progress(53, 'Preparing build', 'Resolving the acpi_call release')
         version, tag = self._resolve_acpi_call_version()
         module_rel_path = Path('usr') / 'src' / ('%s-%s' % (self.ACPI_CALL_MODULE, version))
         dkms_rel_path = Path('var') / 'lib' / 'dkms' / self.ACPI_CALL_MODULE / version
@@ -870,11 +916,13 @@ class AcpiEnabler:
             self._run(['sudo', 'rm', '-rf', str(host_dkms_dir)])
 
         self._log('Setting up disposable build overlay on %s' % self.BUILD_IMG)
+        self._set_progress(57, 'Preparing build', 'Creating a disposable build environment')
         self._setup_build_overlay()
         try:
             chroot_src_dir = self._build_merged / module_rel_path
 
             self._log('Fetching acpi_call %s' % tag)
+            self._set_progress(61, 'Fetching source', 'Downloading acpi_call %s' % tag)
             self._run(
                 ['sudo', 'git', 'clone', '--depth', '1', '--branch', tag,
                  self.ACPI_CALL_REPO, str(chroot_src_dir)],
@@ -908,9 +956,11 @@ class AcpiEnabler:
             # here rather than trying to detect whether the inherited
             # one actually works.
             self._log('Initialising pacman keyring inside the build overlay')
+            self._set_progress(65, 'Preparing toolchain', 'Initialising the package keyring')
             self._in_build_chroot('pacman-key --init && pacman-key --populate')
 
             self._log('Installing a throwaway build toolchain (discarded after the build)')
+            self._set_progress(69, 'Preparing toolchain', 'Installing temporary build tools')
             self._in_build_chroot(
                 'pacman -Sy --dbpath %s && '
                 'pacman -S base-devel dkms --dbpath %s --needed --overwrite "*" --noconfirm'
@@ -918,6 +968,7 @@ class AcpiEnabler:
             )
 
             self._log('Building acpi_call %s against %s' % (version, kernel_release))
+            self._set_progress(76, 'Compiling fan support', 'Building for %s' % kernel_release)
             self._in_build_chroot(
                 'dkms add -m %s -v %s && dkms build -m %s -v %s -k %s'
                 % (self.ACPI_CALL_MODULE, version, self.ACPI_CALL_MODULE, version, kernel_release)
@@ -948,6 +999,7 @@ class AcpiEnabler:
             # entire time -- host_dkms_dir already holds the just-built
             # state as-is.
             self._log('Copying the built module source back onto the real root')
+            self._set_progress(84, 'Saving build', 'Copying the completed module')
             host_src_dir.parent.mkdir(parents=True, exist_ok=True)
             self._run(['sudo', 'rm', '-rf', str(host_src_dir)])
             self._run(['sudo', 'cp', '-a', str(chroot_src_dir), str(host_src_dir)])
@@ -962,6 +1014,7 @@ class AcpiEnabler:
         # kernel, so `dkms install` only copies the module into place
         # + runs depmod -- it never needs a compiler here.
         self._log('Installing acpi_call %s' % version)
+        self._set_progress(88, 'Installing fan support', 'Registering the DKMS module')
         self._run(
             ['sudo', 'dkms', 'install', '-m', self.ACPI_CALL_MODULE,
              '-v', version, '-k', kernel_release],
@@ -973,6 +1026,7 @@ class AcpiEnabler:
             return
 
         self._log('Loading acpi_call module')
+        self._set_progress(92, 'Loading fan support', 'Loading acpi_call into the kernel')
         self._run(['sudo', 'modprobe', self.ACPI_CALL_MODULE])
 
         # dkms keeps the built module around across kernel updates, but
@@ -1075,19 +1129,26 @@ class AcpiEnabler:
                 cannot be resolved, downloaded, or installed).
         """
         self._log('Enabling ACPI calls')
+        self._set_progress(2, 'Starting', 'Preparing the fan-support installer')
         modules_path = None
         headers_path = None
         readonly_disabled = False
         try:
+            self._set_progress(5, 'Preparing SteamOS', 'Temporarily disabling read-only mode')
             self.prep_steamos()
             readonly_disabled = True
 
             kernel_release = platform.release()
+            self._set_progress(10, 'Checking kernel', kernel_release)
             if not self._acpi_call_installed(kernel_release):
+                self._set_progress(13, 'Resolving kernel packages', kernel_release)
                 modules_path, headers_path = self.download_kernel_packages()
+                self._set_progress(38, 'Installing kernel packages', 'Installing matching modules and headers')
                 self.install_kernel_packages(modules_path, headers_path)
 
+            self._set_progress(45, 'Preparing fan support', 'Checking the DKMS build')
             self.install_acpi_call_module()
+            self._set_progress(94, 'Verifying fan support', 'Checking the loaded kernel interface')
             if not self._acpi_call_installed(kernel_release):
                 self._die(
                     'acpi_call is not installed for the running kernel %s'
@@ -1095,6 +1156,9 @@ class AcpiEnabler:
                 )
             if not Path('/proc/acpi/call').is_file():
                 self._die('acpi_call loaded without creating /proc/acpi/call')
+            self._set_progress(97, 'Configuring self-heal', 'Protecting fan support across SteamOS updates')
+            self._configure_selfheal_updates()
+            self._set_progress(100, 'Complete', 'Fan support is ready')
         finally:
             try:
                 self._teardown_build_overlay()

@@ -24,10 +24,11 @@ from py_modules.acpi_enabler.acpi_enabler import AcpiEnabler
 
 
 class RecordingEnabler(AcpiEnabler):
-    def __init__(self, installed=False, fail_install=False):
+    def __init__(self, installed=False, fail_install=False, progress_callback=None):
         self.verbose = False
         self.installed = installed
         self.fail_install = fail_install
+        self._progress_callback = progress_callback
         self.calls = []
         self._build_work = None
         self._build_merged = None
@@ -60,6 +61,9 @@ class RecordingEnabler(AcpiEnabler):
     def _teardown_build_overlay(self):
         self.calls.append("teardown")
 
+    def _configure_selfheal_updates(self):
+        self.calls.append("selfheal")
+
     def cleanup(self, _modules, _headers):
         self.calls.append("cleanup")
 
@@ -84,8 +88,35 @@ class AcpiEnablerTests(unittest.TestCase):
             enabler.enable()
         self.assertEqual(
             enabler.calls,
-            ["prep", "install-acpi", "teardown", "cleanup", "finalize"],
+            [
+                "prep",
+                "install-acpi",
+                "selfheal",
+                "teardown",
+                "cleanup",
+                "finalize",
+            ],
         )
+
+    def test_enable_reports_monotonic_progress_through_selfheal(self):
+        updates = []
+        enabler = RecordingEnabler(
+            installed=True,
+            progress_callback=updates.append,
+        )
+        with patch("pathlib.Path.is_file", return_value=True):
+            enabler.enable()
+
+        self.assertEqual(updates[-1], {
+            "percent": 100,
+            "stage": "Complete",
+            "detail": "Fan support is ready",
+        })
+        self.assertEqual(
+            [update["percent"] for update in updates],
+            sorted(update["percent"] for update in updates),
+        )
+        self.assertIn("Configuring self-heal", [u["stage"] for u in updates])
 
     def test_enable_always_cleans_up_and_restores_readonly_on_failure(self):
         enabler = RecordingEnabler(fail_install=True)

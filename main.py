@@ -2,6 +2,7 @@ import os
 import asyncio
 import copy
 import logging
+import time
 
 # The decky plugin module is located at decky-loader/plugin
 # For easy intellisense checkout the decky-loader code repo
@@ -41,6 +42,15 @@ class Plugin:
     async def _main(self):
         decky.logger.info("Legion Center starting up")
         self._acpi_call_busy = False
+        self._acpi_call_started_at = None
+        self._acpi_call_progress = {
+            'percent': 0,
+            'stage': 'Idle',
+            'detail': None,
+        }
+        self._fan_apply_status = 'idle'
+        self._fan_apply_error = None
+        self._fan_applied_at = None
 
         settings.remove_transient_status()
         saved = settings.get_settings()
@@ -98,6 +108,11 @@ class Plugin:
             results['acpiCallDkmsEnabled'] = self._acpi_call_dkms_enabled()
             results['acpiCallDkmsBusy'] = getattr(self, '_acpi_call_busy', False)
             results['acpiCallDkmsInstalled'] = fan_capability.dkms_installed_for_running_kernel()
+            progress = self._get_acpi_call_progress_status()
+            results['acpiCallDkmsProgress'] = progress['progress']
+            results['acpiCallDkmsStage'] = progress['stage']
+            results['acpiCallDkmsDetail'] = progress['detail']
+            results['acpiCallDkmsElapsedSeconds'] = progress['elapsedSeconds']
         except Exception as e:
             decky.logger.error(f'error while checking acpi_call dkms status {e}')
 
@@ -130,14 +145,49 @@ class Plugin:
             legacy_set=legacy_set,
         )
 
-    async def get_acpi_call_dkms_status(self):
+    def _set_acpi_call_progress(self, update):
+        """Receive progress from the worker thread using one atomic assignment."""
+        previous = getattr(self, '_acpi_call_progress', {}) or {}
+        percent = update.get('percent', previous.get('percent', 0))
+        self._acpi_call_progress = {
+            'percent': max(0, min(100, int(percent))),
+            'stage': update.get('stage') or previous.get('stage') or 'Working',
+            'detail': update.get('detail'),
+        }
+
+    def _get_acpi_call_progress_status(self):
+        progress = getattr(self, '_acpi_call_progress', {}) or {}
+        started_at = getattr(self, '_acpi_call_started_at', None)
+        elapsed = (
+            max(0, int(time.monotonic() - started_at))
+            if started_at is not None
+            else 0
+        )
         return {
-            'enabled': self._acpi_call_dkms_enabled(),
-            'installed': fan_capability.dkms_installed_for_running_kernel(),
+            'progress': max(0, min(100, int(progress.get('percent', 0)))),
+            'stage': progress.get('stage') or 'Idle',
+            'detail': progress.get('detail'),
+            'elapsedSeconds': elapsed,
+        }
+
+    async def get_acpi_call_dkms_status(self):
+        busy = getattr(self, '_acpi_call_busy', False)
+        # Avoid repeatedly invoking dkms/modprobe while a build is actively
+        # using those facilities. The final response performs a fresh check.
+        if busy:
+            enabled = fan_capability.DEFAULT_ACPI_CALL_PATH.is_file()
+            installed = getattr(self, '_acpi_call_was_installed', False)
+        else:
+            enabled = self._acpi_call_dkms_enabled()
+            installed = fan_capability.dkms_installed_for_running_kernel()
+        return {
+            'enabled': enabled,
+            'installed': installed,
             'managed': bool(
                 AcpiEnabler is not None and AcpiEnabler.ACPI_CALL_CONF_PATH.exists()
             ),
-            'busy': getattr(self, '_acpi_call_busy', False)
+            'busy': busy,
+            **self._get_acpi_call_progress_status(),
         }
 
     async def set_acpi_call_dkms_enabled(self, enabled: bool):
@@ -148,10 +198,21 @@ class Plugin:
         if getattr(self, '_acpi_call_busy', False):
             return {'success': False, 'error': 'An acpi_call dkms operation is already in progress'}
 
+        self._acpi_call_was_installed = fan_capability.dkms_installed_for_running_kernel()
         self._acpi_call_busy = True
+        self._acpi_call_started_at = time.monotonic()
+        self._set_acpi_call_progress({
+            'percent': 0,
+            'stage': 'Starting',
+            'detail': 'Launching the fan-support installer',
+        })
         try:
             workdir = os.path.join(decky.DECKY_PLUGIN_RUNTIME_DIR, 'acpi-enabler-work')
-            enabler = AcpiEnabler(workdir=workdir, verbose=True)
+            enabler = AcpiEnabler(
+                workdir=workdir,
+                verbose=True,
+                progress_callback=self._set_acpi_call_progress,
+            )
 
             loop = asyncio.get_running_loop()
             if enabled:
@@ -159,6 +220,7 @@ class Plugin:
             else:
                 await loop.run_in_executor(None, enabler.disable)
 
+            self._acpi_call_busy = False
             status = await self.get_acpi_call_dkms_status()
             status['busy'] = False
             if enabled and not status['enabled']:
@@ -170,9 +232,18 @@ class Plugin:
             return {'success': True, **status}
         except Exception as e:
             decky.logger.error(f'error while {"enabling" if enabled else "disabling"} acpi_call dkms|{e}')
-            return {'success': False, 'error': str(e)}
+            self._set_acpi_call_progress({
+                'stage': 'Failed',
+                'detail': str(e),
+            })
+            return {
+                'success': False,
+                'error': str(e),
+                **self._get_acpi_call_progress_status(),
+            }
         finally:
             self._acpi_call_busy = False
+            self._acpi_call_started_at = None
 
     async def save_controller_settings(self, controller, currentGameId):
         controllerProfiles = controller.get('controllerProfiles')

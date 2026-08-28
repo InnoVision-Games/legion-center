@@ -19,6 +19,10 @@ TRANSIENT_STATUS_KEYS = (
     'acpiCallDkmsEnabled',
     'acpiCallDkmsBusy',
     'acpiCallDkmsInstalled',
+    'acpiCallDkmsProgress',
+    'acpiCallDkmsStage',
+    'acpiCallDkmsDetail',
+    'acpiCallDkmsElapsedSeconds',
 )
 
 def deep_merge(origin, destination):

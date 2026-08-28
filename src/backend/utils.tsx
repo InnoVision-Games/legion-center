@@ -17,12 +17,20 @@ export type AcpiCallDkmsStatus = {
   installed: boolean;
   managed?: boolean;
   busy: boolean;
+  progress: number;
+  stage: string;
+  detail?: string;
+  elapsedSeconds: number;
 };
 
 export type AcpiCallDkmsResult = {
   success: boolean;
   enabled?: boolean;
   installed?: boolean;
+  progress?: number;
+  stage?: string;
+  detail?: string;
+  elapsedSeconds?: number;
   error?: string;
 };
 

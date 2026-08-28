@@ -4,17 +4,29 @@ import {
   Field,
   PanelSection,
   PanelSectionRow,
-  showModal,
-  Spinner
+  ProgressBar,
+  showModal
 } from '@decky/ui';
 import { FC } from 'react';
 import { useAcpiCallDkms } from '../hooks/ui';
+
+const formatElapsed = (seconds: number) => {
+  const minutes = Math.floor(seconds / 60);
+  const remainingSeconds = seconds % 60;
+  return minutes > 0
+    ? `${minutes}m ${remainingSeconds.toString().padStart(2, '0')}s`
+    : `${remainingSeconds}s`;
+};
 
 const AcpiCallPanel: FC = () => {
   const {
     acpiCallDkmsEnabled,
     acpiCallDkmsInstalled,
     acpiCallDkmsBusy,
+    acpiCallDkmsProgress,
+    acpiCallDkmsStage,
+    acpiCallDkmsDetail,
+    acpiCallDkmsElapsedSeconds,
     acpiCallDkmsError,
     setAcpiCallDkmsEnabled
   } = useAcpiCallDkms();
@@ -35,8 +47,8 @@ const AcpiCallPanel: FC = () => {
           'Legion Center will download the matching SteamOS kernel headers, build ' +
           'acpi_call with DKMS, and verify the running interface. This can take ' +
           'several minutes and needs an internet connection. Keep the device awake ' +
-          'until the status below changes. After a SteamOS kernel update, return here ' +
-          'and run Repair again. Desktop Mode is not required.'
+          'until the progress below completes. The installer also configures automatic ' +
+          'repair after future SteamOS updates. Desktop Mode is not required.'
         }
         strOKButtonText={acpiCallDkmsEnabled ? 'Repair' : 'Install'}
         onOK={() => {
@@ -48,7 +60,7 @@ const AcpiCallPanel: FC = () => {
           // operation, which is exactly what made users think their
           // click didn't register and click Enable again. Firing it
           // without awaiting lets the dialog close immediately; the
-          // panel underneath already shows a spinner + Status field for
+          // panel underneath already shows detailed progress for
           // the actual progress.
           setAcpiCallDkmsEnabled(true);
         }}
@@ -70,6 +82,11 @@ const AcpiCallPanel: FC = () => {
     statusText = 'Error';
     statusColor = 'red';
   }
+
+  const progressPercent = Math.max(
+    0,
+    Math.min(100, Math.round(acpiCallDkmsProgress))
+  );
 
   return (
     <PanelSection title="System">
@@ -99,21 +116,35 @@ const AcpiCallPanel: FC = () => {
       {acpiCallDkmsBusy && (
         <PanelSectionRow>
           <Field
+            childrenLayout="below"
+            spacingBetweenLabelAndChild="none"
             label={
               <div
                 style={{
                   display: 'flex',
-                  alignItems: 'center',
-                  gap: '0.5rem'
+                  alignItems: 'baseline',
+                  justifyContent: 'space-between',
+                  width: '100%'
                 }}
               >
-                <Spinner style={{ width: '16px', height: '16px' }} />
-                <span>
-                  Installing fan support, this can take several minutes…
-                </span>
+                <span>{acpiCallDkmsStage || 'Working'}</span>
+                <span>{progressPercent}%</span>
               </div>
             }
-          />
+            description={
+              <span>
+                {acpiCallDkmsDetail ? `${acpiCallDkmsDetail} · ` : undefined}
+                {formatElapsed(acpiCallDkmsElapsedSeconds)} elapsed
+              </span>
+            }
+          >
+            <div style={{ width: '100%', marginTop: '0.5rem' }}>
+              <ProgressBar
+                nProgress={progressPercent / 100}
+                nTransitionSec={0.2}
+              />
+            </div>
+          </Field>
         </PanelSectionRow>
       )}
       {!acpiCallDkmsBusy && Boolean(acpiCallDkmsError) && (
