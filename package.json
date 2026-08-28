@@ -1,7 +1,7 @@
 {
   "name": "legion-center",
-  "version": "0.1.1",
-  "description": "A Decky Loader plugin for Legion Go controller remapping, fan control, and power LED management",
+  "version": "0.1.2",
+  "description": "A Decky Loader plugin for Legion Go controller remapping, monitored fan profiles, power LED, and battery protection",
   "type": "module",
   "scripts": {
     "build": "shx rm -rf dist && rollup -c",
