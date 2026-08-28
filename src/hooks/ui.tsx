@@ -7,8 +7,12 @@ import {
   selectAcpiCallDkmsInstalled,
   selectChargeLimitBackend,
   selectChargeLimitBusy,
+  selectChargeLimitConfigurable,
   selectChargeLimitEnabled,
   selectChargeLimitError,
+  selectChargeLimitMaxPercent,
+  selectChargeLimitMinPercent,
+  selectChargeLimitPercent,
   selectPowerLedEnabled,
   selectSupportsChargeLimit,
   uiSlice
@@ -33,25 +37,33 @@ import {
 // interval instead of staying wrong until a reload.
 const ACPI_CALL_DKMS_POLL_INTERVAL_MS = 5000;
 
-export const useChargeLimitEnabled = () => {
+export const useChargeLimit = () => {
   const chargeLimitEnabled = useSelector(selectChargeLimitEnabled);
+  const chargeLimitPercent = useSelector(selectChargeLimitPercent);
+  const chargeLimitConfigurable = useSelector(selectChargeLimitConfigurable);
+  const chargeLimitMinPercent = useSelector(selectChargeLimitMinPercent);
+  const chargeLimitMaxPercent = useSelector(selectChargeLimitMaxPercent);
   const supportsChargeLimit = useSelector(selectSupportsChargeLimit);
   const chargeLimitBackend = useSelector(selectChargeLimitBackend);
   const chargeLimitBusy = useSelector(selectChargeLimitBusy);
   const chargeLimitError = useSelector(selectChargeLimitError);
   const dispatch = useDispatch();
 
-  const setChargeLimit = (enabled: boolean) => {
-    return dispatch(uiSlice.actions.setChargeLimit(enabled));
+  const setChargeLimitPercent = (limit: number) => {
+    return dispatch(uiSlice.actions.setChargeLimitPercent(limit));
   };
 
   return {
     chargeLimitEnabled,
+    chargeLimitPercent,
+    chargeLimitConfigurable,
+    chargeLimitMinPercent,
+    chargeLimitMaxPercent,
     supportsChargeLimit,
     chargeLimitBackend,
     chargeLimitBusy,
     chargeLimitError,
-    setChargeLimit
+    setChargeLimitPercent
   };
 };
 

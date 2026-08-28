@@ -1,10 +1,4 @@
-import {
-  Field,
-  PanelSection,
-  PanelSectionRow,
-  staticClasses,
-  ToggleField
-} from '@decky/ui';
+import { staticClasses } from '@decky/ui';
 import { definePlugin } from '@decky/api';
 import { FC, memo } from 'react';
 
@@ -21,47 +15,18 @@ import logo from '../assets/Icon.png';
 import FanPanel from './components/fan/FanPanel';
 import ErrorBoundary from './components/ErrorBoundary';
 import OtaUpdates from './components/OtaUpdates';
-import { useChargeLimitEnabled } from './hooks/ui';
+import BatteryPanel from './components/BatteryPanel';
 
 const Content: FC = memo(() => {
   const loading = useSelector(getInitialLoading);
-  const {
-    chargeLimitEnabled,
-    supportsChargeLimit,
-    chargeLimitBackend,
-    chargeLimitBusy,
-    chargeLimitError,
-    setChargeLimit
-  } = useChargeLimitEnabled();
   if (loading) {
     return null;
   }
   return (
     <>
-      {supportsChargeLimit && (
-        <PanelSection>
-          <PanelSectionRow>
-            <ToggleField
-              label="Enable Charge Limit (80%)"
-              description={
-                chargeLimitBackend === 'sysfs'
-                  ? 'Uses the native Lenovo battery protection interface'
-                  : 'Uses the legacy ACPI battery protection interface'
-              }
-              checked={chargeLimitEnabled}
-              disabled={chargeLimitBusy}
-              onChange={setChargeLimit}
-            />
-          </PanelSectionRow>
-          {Boolean(chargeLimitError) && (
-            <PanelSectionRow>
-              <Field label="Charge limit error">
-                <span style={{ color: '#ff6b6b' }}>{chargeLimitError}</span>
-              </Field>
-            </PanelSectionRow>
-          )}
-        </PanelSection>
-      )}
+      <ErrorBoundary title="Battery Panel">
+        <BatteryPanel />
+      </ErrorBoundary>
       <ErrorBoundary title="Lighting Panel">
         <PowerLedPanel />
       </ErrorBoundary>

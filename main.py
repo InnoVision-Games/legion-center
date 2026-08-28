@@ -44,8 +44,15 @@ class Plugin:
 
         settings.remove_transient_status()
         saved = settings.get_settings()
-        if saved.get("chargeLimitEnabled", False):
-            result = self._set_charge_limit_hardware(True)
+        saved_charge_limit = saved.get("chargeLimitPercent")
+        if type(saved_charge_limit) is not int:
+            saved_charge_limit = (
+                battery_charge.FIXED_LIMIT_PERCENT
+                if saved.get("chargeLimitEnabled", False)
+                else battery_charge.DEFAULT_LIMIT_PERCENT
+            )
+        if saved_charge_limit < battery_charge.DEFAULT_LIMIT_PERCENT:
+            result = self._set_charge_limit_hardware(saved_charge_limit)
             if not result.success:
                 decky.logger.error(
                     f"failed to restore saved charge limit: {result.error}"
@@ -80,6 +87,10 @@ class Plugin:
         charge_status = self._get_charge_limit_status()
         results['supportsChargeLimit'] = charge_status.supported
         results['chargeLimitEnabled'] = bool(charge_status.enabled)
+        results['chargeLimitPercent'] = charge_status.limit
+        results['chargeLimitConfigurable'] = charge_status.configurable
+        results['chargeLimitMinPercent'] = charge_status.minimum
+        results['chargeLimitMaxPercent'] = charge_status.maximum
         results['chargeLimitBackend'] = charge_status.backend
         results['chargeLimitError'] = charge_status.error
 
@@ -110,11 +121,11 @@ class Plugin:
             legacy_get=self._legacy_charge_getter()
         )
 
-    def _set_charge_limit_hardware(self, enabled: bool):
+    def _set_charge_limit_hardware(self, limit):
         legacy_get = self._legacy_charge_getter()
         legacy_set = legion_space.set_charge_limit if legacy_get else None
         return battery_charge.set_charge_limit(
-            enabled,
+            limit,
             legacy_get=legacy_get,
             legacy_set=legacy_set,
         )
@@ -247,11 +258,26 @@ class Plugin:
         except Exception as e:
             decky.logger.error(f'error while setting power led {e}')
 
-    async def set_charge_limit(self, enabled):
+    async def set_charge_limit(self, limit):
         try:
-            result = self._set_charge_limit_hardware(bool(enabled))
+            # Keep the v0.1.x boolean RPC shape working for an older frontend
+            # during Decky's plugin reload window, while v0.1.2+ sends an exact
+            # percentage.
+            if isinstance(limit, bool):
+                requested_limit = (
+                    battery_charge.FIXED_LIMIT_PERCENT
+                    if limit
+                    else battery_charge.DEFAULT_LIMIT_PERCENT
+                )
+            elif type(limit) is int:
+                requested_limit = limit
+            else:
+                raise ValueError('charge limit must be an integer percentage')
+
+            result = self._set_charge_limit_hardware(requested_limit)
             if result.success:
                 settings.set_setting('chargeLimitEnabled', bool(result.enabled))
+                settings.set_setting('chargeLimitPercent', result.limit)
             else:
                 decky.logger.error(f'error while setting charge limit: {result.error}')
             return result.to_dict()

@@ -30,6 +30,10 @@ export type ChargeLimitResult = {
   success: boolean;
   supported?: boolean;
   enabled?: boolean;
+  limit?: number;
+  configurable?: boolean;
+  minimum?: number;
+  maximum?: number;
   backend?: string;
   error?: string;
 };
@@ -56,10 +60,10 @@ export const setPowerLed = async (enabled: boolean) => {
   await call<[enabled: boolean], void>(ServerAPIMethods.SET_POWER_LED, enabled);
 };
 
-export const setChargeLimit = async (enabled: boolean) => {
-  return await call<[enabled: boolean], ChargeLimitResult>(
+export const setChargeLimit = async (limit: number) => {
+  return await call<[limit: number], ChargeLimitResult>(
     ServerAPIMethods.SET_CHARGE_LIMIT,
-    enabled
+    limit
   );
 };
 
